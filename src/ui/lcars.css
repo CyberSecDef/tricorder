@@ -1,0 +1,544 @@
+/* ==========================================================================
+   LCARS — Library Computer Access/Retrieval System
+   Palette follows the TNG-era swatch names. Layout is built from elbows:
+   an L-shaped block whose inner corner is a concave curve, produced by
+   knocking a rounded-corner rectangle out of the bottom-right (see .elbow).
+
+   Sizing uses dvh, never vh (§9): Safari, Chrome and Edge on iOS each have a
+   different chrome height and a URL bar that collapses on scroll.
+   ========================================================================== */
+
+:root {
+  /* Canonical LCARS swatches */
+  --lc-orange:    #ff9c00;  /* Butterscotch  */
+  --lc-tangerine: #ff9966;  /* Atomic Tangerine */
+  --lc-tanoi:     #ffcc99;
+  --lc-sunflower: #ffcc00;
+  --lc-gold:      #ffcc66;  /* Golden Tanoi  */
+  --lc-violet:    #cc99cc;  /* African Violet */
+  --lc-lilac:     #cc99ff;
+  --lc-hopbush:   #cc6699;
+  --lc-bell:      #9999ff;  /* Blue Bell     */
+  --lc-anakiwa:   #99ccff;
+  --lc-mariner:   #3366cc;
+  --lc-rust:      #cc6666;  /* Chestnut Rose */
+  --lc-red:       #ff5555;
+
+  --bg:        #000;
+  --panel:     #0b0b10;
+  --ink:       #000;
+  --text:      var(--lc-tanoi);
+  --text-dim:  #9a8f80;
+
+  --rail-w:    78px;
+  --bar-h:     44px;
+  --gap:       4px;
+  --elbow-r:   58px;   /* outer sweep */
+  --inner-r:   26px;   /* concave inner corner */
+
+  --font-lcars: 'Antonio', 'Oswald', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+  --font-data:  ui-monospace, 'SF Mono', 'Menlo', 'Consolas', monospace;
+}
+
+@media (min-width: 620px) {
+  :root { --rail-w: 132px; --bar-h: 52px; --elbow-r: 72px; --inner-r: 34px; }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-lcars);
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  /* No rubber-band scroll — instruments manage their own overflow. */
+  overflow: hidden;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  height: 100dvh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  padding: var(--gap);
+  gap: var(--gap);
+  /* Safe areas: the notch and the home indicator. */
+  padding-top: max(var(--gap), env(safe-area-inset-top));
+  padding-bottom: max(var(--gap), env(safe-area-inset-bottom));
+  padding-left: max(var(--gap), env(safe-area-inset-left));
+  padding-right: max(var(--gap), env(safe-area-inset-right));
+}
+
+/* ---------- Elbows -------------------------------------------------------
+   An elbow fills its box with colour, rounds one outer corner into a sweep,
+   then removes the opposite rectangle — whose own corner is rounded — to
+   leave the characteristic concave inner curve.                          */
+
+.elbow {
+  position: relative;
+  background: var(--elbow-color, var(--lc-orange));
+  flex: 0 0 auto;
+}
+.elbow::after {
+  content: '';
+  position: absolute;
+  background: var(--bg);
+}
+
+/* Top-left elbow: vertical stem on the left, arm running right. */
+.elbow--tl {
+  width: var(--rail-w);
+  height: var(--bar-h);
+  border-top-left-radius: var(--elbow-r);
+}
+.elbow--tl::after {
+  right: 0; bottom: 0;
+  width: calc(100% - 30px);
+  height: calc(100% - 18px);
+  border-top-left-radius: var(--inner-r);
+}
+
+/* Bottom-left elbow: mirror of the above. */
+.elbow--bl {
+  width: var(--rail-w);
+  height: var(--bar-h);
+  border-bottom-left-radius: var(--elbow-r);
+}
+.elbow--bl::after {
+  right: 0; top: 0;
+  width: calc(100% - 30px);
+  height: calc(100% - 18px);
+  border-bottom-left-radius: var(--inner-r);
+}
+
+/* ---------- Header / footer bars ---------------------------------------- */
+
+.bar {
+  display: flex;
+  align-items: stretch;
+  gap: var(--gap);
+  flex: 0 0 auto;
+  min-height: var(--bar-h);
+}
+
+.bar__fill {
+  flex: 1 1 auto;
+  background: var(--lc-orange);
+  border-radius: 0 999px 999px 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 22px 0 14px;
+  min-width: 0;
+}
+
+.bar__title {
+  flex: 0 1 auto;
+  font-size: clamp(15px, 4.2vw, 26px);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar__sub {
+  flex: 1 1 0;
+  min-width: 0;
+  color: #4a2f00;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-right: auto;
+  padding-left: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Decorative block sequence — the LCARS "data cells". */
+.blocks { display: flex; gap: var(--gap); flex: 0 0 auto; }
+.block {
+  width: 34px;
+  border-radius: 2px;
+  background: var(--lc-bell);
+  color: var(--ink);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0 3px 2px 0;
+}
+.block:nth-child(2) { background: var(--lc-violet); width: 22px; }
+.block:nth-child(3) { background: var(--lc-gold);   width: 48px; }
+@media (max-width: 619px) { .blocks { display: none; } }
+@media (max-width: 519px) { .bar__sub { display: none; } }
+
+/* ---------- Body: rail + stage ------------------------------------------ */
+
+.body {
+  flex: 1 1 auto;
+  display: flex;
+  gap: var(--gap);
+  min-height: 0;
+}
+
+.rail {
+  width: var(--rail-w);
+  flex: 0 0 var(--rail-w);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.rail::-webkit-scrollbar { display: none; }
+
+.rail__btn {
+  appearance: none;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  background: var(--lc-bell);
+  color: var(--ink);
+  border-radius: 0 0 0 0;
+  min-height: 46px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 4px 8px 5px 4px;
+  text-align: right;
+  line-height: 1.02;
+  transition: filter 120ms ease;
+}
+.rail__btn:nth-child(4n+1) { background: var(--lc-violet); }
+.rail__btn:nth-child(4n+2) { background: var(--lc-gold); }
+.rail__btn:nth-child(4n+3) { background: var(--lc-bell); }
+.rail__btn:nth-child(4n)   { background: var(--lc-tangerine); }
+.rail__btn:active { filter: brightness(1.35); }
+.rail__btn[aria-current='true'] {
+  background: var(--lc-sunflower);
+  box-shadow: inset 0 0 0 3px #000, inset 0 0 0 6px var(--lc-sunflower);
+}
+.rail__btn[disabled] { opacity: 0.34; cursor: default; }
+
+.rail__num {
+  font-family: var(--font-data);
+  font-size: 9px;
+  opacity: 0.62;
+  letter-spacing: 0.04em;
+}
+.rail__label {
+  font-size: clamp(11px, 3vw, 15px);
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+  word-break: break-word;
+}
+.rail__ms {
+  font-family: var(--font-data);
+  font-size: 8px;
+  opacity: 0.5;
+}
+
+/* The rail's last child stretches to fill, as LCARS rails always do. */
+.rail__spacer {
+  flex: 1 1 auto;
+  min-height: 12px;
+  background: var(--lc-rust);
+  border-radius: 0 0 0 18px;
+}
+
+.stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+  border-radius: 2px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.stage__scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Column-flex children shrink by default, which collapses every canvas panel
+   to a thin strip. Nothing in the scroller should ever shrink — it scrolls. */
+.stage__scroll > * { flex: 0 0 auto; }
+
+/* ---------- Readouts ----------------------------------------------------- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 6px;
+}
+
+.readout {
+  background: #14141c;
+  border-left: 4px solid var(--lc-bell);
+  border-radius: 2px;
+  padding: 6px 9px 7px;
+  min-width: 0;
+}
+.readout--wide { grid-column: 1 / -1; }
+.readout[data-state='ok']   { border-left-color: #66cc88; }
+.readout[data-state='warn'] { border-left-color: var(--lc-sunflower); }
+.readout[data-state='bad']  { border-left-color: var(--lc-red); }
+.readout[data-state='idle'] { border-left-color: #444; }
+
+.ro-label {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lc-violet);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ro-line { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.ro-value {
+  font-family: var(--font-data);
+  font-size: clamp(17px, 4.6vw, 25px);
+  font-variant-numeric: tabular-nums;
+  color: var(--lc-gold);
+  line-height: 1.16;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ro-unit { font-size: 11px; color: var(--text-dim); letter-spacing: 0.08em; }
+.ro-note {
+  font-family: var(--font-data);
+  font-size: 9.5px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Section headings -------------------------------------------- */
+
+.sect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.sect__label {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--lc-tangerine);
+  white-space: nowrap;
+}
+.sect__rule { flex: 1 1 auto; height: 3px; background: var(--lc-rust); border-radius: 2px; }
+
+/* ---------- Canvas panels ------------------------------------------------ */
+
+.scope {
+  position: relative;
+  flex: 0 0 auto;
+  background: #06060a;
+  border-radius: 2px;
+  border-left: 4px solid var(--lc-violet);
+  overflow: hidden;
+}
+.scope > canvas { display: block; width: 100%; height: 100%; }
+.scope__cap {
+  position: absolute;
+  top: 5px; right: 8px;
+  font-family: var(--font-data);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  pointer-events: none;
+  text-align: right;
+}
+
+/* ---------- Buttons ------------------------------------------------------ */
+
+.btn {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--lc-gold);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 9px 20px;
+  font-size: 13px;
+}
+.btn:active { filter: brightness(1.3); }
+.btn--alt { background: var(--lc-violet); }
+.btn--warn { background: var(--lc-rust); }
+.btn[disabled] { opacity: 0.4; cursor: default; }
+
+.btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---------- Notices ------------------------------------------------------ */
+
+.notice {
+  border-left: 4px solid var(--lc-sunflower);
+  background: #1b1508;
+  padding: 8px 11px;
+  border-radius: 2px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--lc-tanoi);
+  letter-spacing: 0.02em;
+}
+.notice--bad { border-left-color: var(--lc-red); background: #1e0b0b; }
+.notice--ok  { border-left-color: #66cc88; background: #08160e; }
+.notice strong { color: var(--lc-sunflower); }
+.notice code {
+  font-family: var(--font-data);
+  font-size: 11px;
+  background: #00000066;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+.notice ul { margin: 6px 0 0; padding-left: 18px; }
+.notice li { margin-bottom: 4px; }
+
+/* ---------- Tables (diagnostics) ---------------------------------------- */
+
+.dtable { width: 100%; border-collapse: collapse; font-family: var(--font-data); font-size: 11.5px; }
+.dtable td { padding: 4px 6px; border-bottom: 1px solid #1e1e28; vertical-align: top; }
+.dtable td:first-child { color: var(--lc-violet); white-space: nowrap; letter-spacing: 0.04em; }
+.dtable td:last-child { color: var(--lc-gold); text-align: right; word-break: break-word; }
+.dtable tr[data-state='bad'] td:last-child  { color: var(--lc-red); }
+.dtable tr[data-state='warn'] td:last-child { color: var(--lc-sunflower); }
+.dtable tr[data-state='ok'] td:last-child   { color: #7ddc9c; }
+
+/* ---------- Boot gate ---------------------------------------------------- */
+
+.boot {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  padding: max(14px, env(safe-area-inset-top)) 16px max(14px, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.boot__inner {
+  margin: auto;
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 0;
+}
+.boot__title {
+  font-size: clamp(30px, 11vw, 62px);
+  letter-spacing: 0.2em;
+  color: var(--lc-orange);
+  line-height: 0.94;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.boot__sub {
+  font-family: var(--font-data);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  letter-spacing: 0.09em;
+  line-height: 1.6;
+}
+.engage {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  background: var(--lc-orange);
+  color: var(--ink);
+  font-size: clamp(24px, 8vw, 40px);
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 20px 28px;
+  width: 100%;
+  transition: filter 120ms ease, transform 90ms ease;
+}
+.engage:active { filter: brightness(1.3); transform: scale(0.985); }
+.engage[disabled] { opacity: 0.45; cursor: default; }
+
+.boot__log {
+  font-family: var(--font-data);
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.65;
+  letter-spacing: 0.04em;
+  white-space: pre-wrap;
+}
+.boot__log .ok  { color: #7ddc9c; }
+.boot__log .bad { color: var(--lc-red); }
+.boot__log .warn{ color: var(--lc-sunflower); }
+
+/* ---------- Misc --------------------------------------------------------- */
+
+.mono { font-family: var(--font-data); }
+.dim  { color: var(--text-dim); }
+.warnc { color: var(--lc-sunflower); }
+.badc  { color: var(--lc-red); }
+.okc   { color: #7ddc9c; }
+
+.chip {
+  display: inline-block;
+  font-family: var(--font-data);
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--lc-mariner);
+  color: #fff;
+}
+.chip--warn { background: var(--lc-sunflower); color: #000; }
+.chip--bad  { background: var(--lc-red); color: #000; }
+.chip--ok   { background: #2f8f57; color: #000; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
+/* Square instrument panels (compass rose, bubble level). Width-driven with an
+   aspect ratio, capped against the viewport so they never push the readouts
+   off screen on a short display. */
+.scope--square {
+  width: min(100%, 46dvh);
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+}

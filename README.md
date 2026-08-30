@@ -1,0 +1,140 @@
+# Tricorder
+
+A browser-based sensor suite for **iOS** — Safari, Chrome and Edge. Every
+readout comes from a real device measurement, and anything derived or
+uncalibrated says so in the UI.
+
+Implementation constraints, instrument specs and the open questions live in
+[`TRICORDER_HANDOFF.md`](TRICORDER_HANDOFF.md). Section references throughout
+the source point back at it.
+
+## Status — M1 complete
+
+| # | Instrument | State |
+|---|---|---|
+| 1 | Permission / boot gate | ✅ built |
+| 2 | Geo & navigation | ✅ built |
+| 3 | Compass / attitude | ✅ built |
+| 4 | Seismograph / vibration | ✅ built |
+| 5 | Audio spectrum analyzer | ✅ built |
+| — | Diagnostics | ✅ built |
+| 6 | Floor-plane rangefinder | M2 — stub with spec + blockers |
+| 7 | Magnetic anomaly detector | M2 — stub |
+| 8 | Ultrasonic Doppler | M3 — stub |
+| 9 | ML depth scanner | M4 — stub |
+| 10 | Acoustic sonar | M5 — stub |
+
+Nothing has been verified on a physical iPhone yet. See
+[On-device verification](#on-device-verification).
+
+## Running it
+
+### Desktop
+
+```sh
+npm install
+npm run dev          # https://localhost:5173
+```
+
+`localhost` is a secure context, so no certificate work is needed. Desktop
+Chromium has no DeviceMotion and no `webkitCompassHeading`, so the compass and
+seismograph will sit idle — useful for layout, not for signal.
+
+### On the phone (fully local, no tunnel)
+
+iOS requires a **secure context** for motion, orientation, geolocation, camera
+and microphone, and a phone cannot use `localhost`. Over plain HTTP the APIs do
+not throw — the events simply never fire, which is the single most misleading
+failure mode in this project (§6). So the LAN needs real TLS.
+
+This repo does that locally with a private CA. One-time setup:
+
+```sh
+npm run certs        # generate the CA + a leaf cert for this machine
+npm run serve-ca     # plain-HTTP server so the phone can fetch the CA
+```
+
+On the iPhone, open `http://<your-hostname>.local:8000/` and:
+
+1. Tap **Download certificate**.
+2. **Settings → General → VPN & Device Management** → the downloaded profile → **Install**.
+3. **Settings → General → About → Certificate Trust Settings** → switch on **Tricorder Dev CA**.
+
+Step 3 is the one everyone misses. Installing the profile alone is not enough —
+without enabling full trust, Safari still rejects the certificate.
+
+Then stop `serve-ca`, run `npm run dev`, and open `https://<hostname>.local:5173`
+on the phone. WKWebView uses the system trust store, so this works identically
+in Safari, Chrome and Edge.
+
+`npm run certs` re-signs the leaf for whatever IPs the machine currently holds
+and reuses the existing CA, so a DHCP change needs a re-run but **not** a
+re-install on the phone.
+
+## Architecture
+
+```
+src/
+  sensors/       raw streams, no UI. Refcounted so N instruments share 1 listener.
+    stream.ts      SensorStream — starts on first subscriber, stops after the last
+    motion.ts      devicemotion → accel / accelG / omega / dt
+    orientation.ts deviceorientation → alpha,beta,gamma + webkitCompass*
+    gravity.ts     low-passed gravity-down unit vector, pitch, roll
+    geo.ts         watchPosition wrapper + fix-quality helpers
+    audio.ts       per-profile mic acquisition (NOT a shared stream — see §5)
+  instruments/   one screen each; consumes sensors/, owns its own maths
+  lib/           permissions, capabilities, DSP, vectors, wake lock, storage
+  ui/            LCARS shell, screen lifecycle, DOM helpers
+```
+
+Two rules the code is built around:
+
+**Screen lifecycle is the core abstraction.** `Instrument` (in `ui/screen.ts`)
+registers every subscription, listener, interval and animation frame, and tears
+them all down on unmount. Nothing is trusted to remember its own cleanup,
+because a leaked camera or mic stream keeps the iOS privacy indicator lit and
+reads as spyware.
+
+**There is no global microphone.** Measurement instruments need
+`echoCancellation`/`noiseSuppression`/`autoGainControl` all off; a voice meter
+wants them on. Those are incompatible, so each screen acquires the profile it
+needs and releases it on exit (§5).
+
+## On-device verification
+
+M1 is not done until it has run on real hardware in all three browsers. The
+Diagnostics screen exists to make this fast — it reports every capability, the
+runtime audio sample rate, live event rates, and the gravity calibration state.
+
+Open questions from §11 that the current build is set up to answer:
+
+1. **`accelerationIncludingGravity` sign convention.** Diagnostics → *Calibrate
+   gravity*, phone flat and screen up. Nothing assumes a polarity at build
+   time; the result is persisted and shown. Record the observed vector in the
+   comment block at the top of `src/sensors/gravity.ts`.
+3. **Audio sample rate** (48 k vs 44.1 k) — Diagnostics → Runtime. Determines
+   the ultrasonic ceiling for Instruments 8 and 10.
+6. **WebGPU exposure** — the Diagnostics WebGPU row, checked in each of Safari,
+   Chrome and Edge. Decides Instrument 9's backend.
+7. **Wake Lock availability** — Diagnostics → Runtime, per browser.
+8. **Motion-prompt behaviour and denial recovery** — exercise the boot gate in
+   each browser.
+
+Acceptance tests per §8, in build order:
+
+- **Compass** — reads within ~5° of a known-good compass; the bubble agrees with
+  a real spirit level on a flat table. Cheapest test of the orientation
+  permission path, so run it first in all three browsers.
+- **Seismograph** — tapping the table makes clear transients; a phone sitting
+  still reads near zero.
+- **Spectrum** — play a 440 Hz tone from another device; the peak lands within
+  one bin (2.93 Hz at a 48 kHz sample rate).
+- **Geo** — walk 100 m; the logged distance lands within ~10%.
+
+## Deliberate non-goals
+
+Absolute SPL in dB, Richter magnitude, metric depth from the ML model,
+barometric pressure, temperature, humidity, radiation, NFC and battery. Either
+no API exists on iOS in any browser, or the phone cannot be calibrated for it.
+They are not faked, and Diagnostics lists the absent APIs explicitly so a future
+reader does not go hunting.

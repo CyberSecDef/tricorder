@@ -1,0 +1,149 @@
+/**
+ * Placeholder screens for Instruments 6–10. They are in the rail from day one
+ * deliberately: each one states what it will measure, what it cannot, and
+ * which open question in §11 has to be answered before it can be built. The
+ * build order in §2 is not arbitrary and skipping ahead is how this project
+ * would go wrong.
+ */
+
+import { Instrument } from '../ui/screen';
+import { el, append, section, notice } from '../ui/dom';
+
+interface Plan {
+  id: string;
+  /** Rail label — kept short by hand; splitting the title gives poor results. */
+  short: string;
+  title: string;
+  subtitle: string;
+  milestone: string;
+  difficulty: string;
+  needs: string;
+  principle: string;
+  blockers: string[];
+  honesty: string;
+}
+
+export const PLANNED: Plan[] = [
+  {
+    id: 'rangefinder',
+    short: 'Range',
+    title: 'Floor-Plane Rangefinder',
+    subtitle: 'Metric distance from camera + gravity',
+    milestone: 'M2',
+    difficulty: 'Medium — the most useful instrument in the set',
+    needs: 'Camera + DeviceMotion',
+    principle:
+      'With the camera at a known height h above a flat floor, a ray depressed θ below horizontal meets the floor at h / tan θ. Tap where an object meets the floor and the geometry gives a genuinely metric distance.',
+    blockers: [
+      'Gravity sign convention must be calibrated first (Diagnostics) — the whole derivation hangs on ĝ_down pointing the right way.',
+      'FOV is the dominant error source and getUserMedia may crop relative to the native camera. Needs a calibration mode solving for FOV against a tape-measured distance, keyed by capability fingerprint rather than UA — Safari and WKWebView may crop differently (§11 q.5).',
+      'Normalised tap coordinates must account for CSS object-fit cropping of the video element. This is the classic bug in this instrument.',
+    ],
+    honesty:
+      'Error grows as 1/tan θ, so accuracy degrades sharply with distance. Good to a few percent from 0.5–5 m; refuses to display beyond ~8 m, and shows an uncertainty band.',
+  },
+  {
+    id: 'magnetic',
+    short: 'Magnetic',
+    title: 'Magnetic Anomaly Detector',
+    subtitle: 'Gyro/compass residual — relative index',
+    milestone: 'M2',
+    difficulty: 'Medium — the most surprising instrument in the set',
+    needs: 'DeviceOrientation + DeviceMotion',
+    principle:
+      'The raw magnetometer is unreachable in every iOS browser, so we infer disturbance instead. Signal A: plot webkitCompassAccuracy over time — it degrades near ferrous mass. Signal B: the gyroscope is magnetically immune and the compass is not, so integrate yaw rate about true vertical and compare it against the actual compass heading change. The residual is the anomaly.',
+    blockers: [
+      'OPEN QUESTION (§11 q.2): iOS Core Motion already fuses these signals and may partially reject magnetic outliers, damping signal B. This must be MEASURED before any UI is built on it — sweep the phone past a speaker magnet and log the raw residual. If B is too smoothed, fall back to signal A alone.',
+      'Yaw rate must be projected onto the gravity vector, not read from rotationRate.alpha — alpha is only yaw when the phone lies flat on its back.',
+      'Heading difference must be unwrapped across the 0/360 seam, and gyro bias detrended with a 20–30 s EMA.',
+    ],
+    honesty:
+      'Labelled "relative index". No µT reading will be shown, because none can be obtained.',
+  },
+  {
+    id: 'doppler',
+    short: 'Doppler',
+    title: 'Ultrasonic Doppler',
+    subtitle: 'Motion detection via sideband energy',
+    milestone: 'M3',
+    difficulty: 'Medium',
+    needs: 'Web Audio — raw mic profile mandatory',
+    principle:
+      'Emit a steady ~20 kHz tone and watch the bins either side of the carrier. Δf = 2vf/c, so 1 m/s of motion shifts about 117 Hz at 20 kHz — roughly 40 bins at fftSize 16384. Sideband asymmetry gives approach versus recede.',
+    blockers: [
+      'Carrier frequency depends on the runtime sample rate: 20 kHz at 48 kHz, ~18 kHz at 44.1 kHz. Check Diagnostics.',
+      'Noise suppression treats a steady tone as noise and deletes the carrier outright; AGC destroys the amplitude the motion index is built on. The raw profile is not optional here.',
+      'The hardware mute switch silences Web Audio output. Needs a "no signal at the emit frequency — check the mute switch" hint.',
+    ],
+    honesty:
+      'Detects gross body movement at close range. It does NOT detect breathing or heartbeat — those shifts are sub-Hz and buried in carrier leakage. It will never be labelled a life-sign detector.',
+  },
+  {
+    id: 'depth',
+    short: 'Depth',
+    title: 'ML Depth Scanner',
+    subtitle: 'Monocular depth estimation',
+    milestone: 'M4',
+    difficulty: 'Hard — the best visual in the set',
+    needs: 'Camera + ONNX via WebGPU, WASM fallback',
+    principle:
+      'Depth-Anything-V2-small through Transformers.js, downscaled to 256–384 px, inference decoupled from the render loop, false-coloured with a perceptually uniform ramp.',
+    blockers: [
+      'OPEN QUESTION (§11 q.6): whether WKWebView exposes WebGPU to Chrome and Edge on the target iOS version, or only to Safari. Check the Diagnostics WebGPU row on each browser before committing.',
+      'Model download is 25–50 MB and the cache is per-browser, so trying the app in both Safari and Chrome downloads it twice. Needs a first-run progress bar.',
+      'Per-frame min/max normalisation causes severe flicker — the normalisation bounds need an EMA across frames.',
+    ],
+    honesty:
+      'The model outputs RELATIVE INVERSE DEPTH, not metres. Any metric scale would come from fitting against tapped floor points from the rangefinder, and would be labelled estimated.',
+  },
+  {
+    id: 'sonar',
+    short: 'Sonar',
+    title: 'Acoustic Sonar',
+    subtitle: 'Matched-filter time-of-flight',
+    milestone: 'M5',
+    difficulty: 'Hard — build last',
+    needs: 'Web Audio AudioWorklet — raw mic profile mandatory',
+    principle:
+      'A Hann-windowed 15→22 kHz chirp over ~10 ms, captured through an AudioWorklet ring buffer and cross-correlated against the reference via FFT multiply. One sample at 48 kHz is 7.15 mm of path, so 3.6 mm of range resolution.',
+    blockers: [
+      'Echo cancellation exists precisely to cancel sound the device just emitted. It will cancel the chirp. Raw profile mandatory.',
+      'The bottom speaker and bottom mic are centimetres apart, so direct coupling dominates. The first 1–2 ms of the correlation must be blanked before peak-picking.',
+      'Chirp band depends on the runtime sample rate — 22 kHz needs 48 kHz sampling.',
+    ],
+    honesty:
+      'Realistically 0.2–3 m against a large flat surface in a quiet room, and pointing-sensitive. Presented as an A-scope trace of correlation amplitude versus range rather than a single number — more honest, and more tricorder-like.',
+  },
+];
+
+export class PlannedInstrument extends Instrument {
+  readonly id: string;
+  readonly title: string;
+  override readonly subtitle: string;
+  override readonly resources = 'none — not yet implemented';
+
+  constructor(private readonly plan: Plan) {
+    super();
+    this.id = plan.id;
+    this.title = plan.title;
+    this.subtitle = plan.subtitle;
+  }
+
+  protected build(root: HTMLElement): void {
+    const p = this.plan;
+    const scroll = el('div', { class: 'stage__scroll' });
+    append(root, scroll);
+
+    append(
+      scroll,
+      notice('warn', `<strong>Not yet built.</strong> Scheduled for <strong>${p.milestone}</strong> · ${p.difficulty} · requires ${p.needs}.`),
+      section('Principle'),
+      el('div', { class: 'notice', style: 'border-left-color:var(--lc-bell);background:#0d1020' }, p.principle),
+      section('Must be resolved first'),
+      el('ul', { class: 'notice', style: 'border-left-color:var(--lc-rust);background:#180d0d' },
+        ...p.blockers.map((b) => el('li', { text: b }))),
+      section('What it will and will not claim'),
+      el('div', { class: 'notice notice--ok' }, p.honesty),
+    );
+  }
+}

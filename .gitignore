@@ -1,0 +1,10 @@
+node_modules/
+dist/
+
+# Development TLS material. The private keys must never be committed; the
+# README explaining how they are generated should be.
+certs/*
+!certs/README.md
+
+*.local
+.DS_Store
