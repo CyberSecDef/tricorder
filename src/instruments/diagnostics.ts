@@ -13,6 +13,7 @@ import { motion } from '../sensors/motion';
 import { orientation } from '../sensors/orientation';
 import { gravity, calibration, calibrateFromFlat, resetCalibration } from '../sensors/gravity';
 import * as wakelock from '../lib/wakelock';
+import { TARGET, type ExpectedCapability } from '../lib/platform';
 import type { Vec3 } from '../lib/vec';
 import { lerp, len } from '../lib/vec';
 
@@ -63,6 +64,19 @@ export class DiagnosticsInstrument extends Instrument {
 
     append(scroll, section('Capabilities'), table(rows));
 
+    // We target iOS 26+, which guarantees these. If one is missing here, the
+    // interesting question is not "does this browser have it" but "why does
+    // this WKWebView differ from Safari at the same OS version" (§1, §11 q.6).
+    const missing = (Object.keys(TARGET.expected) as ExpectedCapability[])
+      .filter((k) => TARGET.expected[k] && !caps[k]);
+    append(scroll, notice(missing.length ? 'bad' : 'ok',
+      missing.length
+        ? `<strong>Below target.</strong> ${escapeHtml(TARGET.os)} should provide ` +
+          `<code>${missing.map(escapeHtml).join('</code>, <code>')}</code>, and this browser does not. ` +
+          'That is a real divergence worth recording — note which browser you are in.'
+        : `<strong>Meets target.</strong> Every capability ${escapeHtml(TARGET.os)} guarantees is present. ` +
+          `Reference device: ${escapeHtml(TARGET.testedOn)}.`));
+
     // --- Permissions & audio ---------------------------------------------
     const permRows: Array<[string, string, State]> = [
       ['motion permission', unlocked?.motion ?? 'not run', st(unlocked?.motion)],
@@ -74,6 +88,7 @@ export class DiagnosticsInstrument extends Instrument {
       ['ultrasonic ceiling', ctx ? (ctx.sampleRate >= 48000 ? '22 kHz usable' : '~20 kHz — narrow the chirp') : '—',
         ctx ? (ctx.sampleRate >= 48000 ? 'ok' : 'warn') : ''],
       ['wake lock held', yn(wakelock.held()), wakelock.held() ? 'ok' : 'warn'],
+      ['target platform', TARGET.os, ''],
       ['depth backend', caps.webgpu ? 'webgpu (when Instrument 9 ships)' : 'wasm fallback — slow', caps.webgpu ? 'ok' : 'warn'],
     ];
     append(scroll, section('Runtime'), table(permRows));

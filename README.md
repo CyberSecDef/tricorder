@@ -1,8 +1,16 @@
 # Tricorder
 
-A browser-based sensor suite for **iOS** — Safari, Chrome and Edge. Every
+A browser-based sensor suite for **iOS 26+** — Safari, Chrome and Edge. Every
 readout comes from a real device measurement, and anything derived or
 uncalibrated says so in the UI.
+
+**Target:** iOS 26 or later. Reference device: iPhone on iOS 26.6.1.
+That floor clears every version gate the handoff hedged against — Wake Lock
+(16.4+), WebGPU (Safari 26+), AudioWorklet (14.5+), getUserMedia in WKWebView
+(14.3+). Feature detection stays regardless: the reason to detect is that
+Chrome and Edge on iOS are WKWebView, and what an embedded web view exposes is
+not guaranteed to match Safari at the same OS version. Diagnostics flags any
+divergence from the floor as a finding rather than shrugging at it.
 
 Implementation constraints, instrument specs and the open questions live in
 [`TRICORDER_HANDOFF.md`](TRICORDER_HANDOFF.md). Section references throughout
@@ -106,19 +114,26 @@ M1 is not done until it has run on real hardware in all three browsers. The
 Diagnostics screen exists to make this fast — it reports every capability, the
 runtime audio sample rate, live event rates, and the gravity calibration state.
 
-Open questions from §11 that the current build is set up to answer:
+Open questions from §11. Targeting iOS 26+ answers 3, 7 and half of 6 by
+version, but they are all still worth confirming per browser, because the
+WKWebView-versus-Safari question is not a version question:
 
 1. **`accelerationIncludingGravity` sign convention.** Diagnostics → *Calibrate
    gravity*, phone flat and screen up. Nothing assumes a polarity at build
    time; the result is persisted and shown. Record the observed vector in the
-   comment block at the top of `src/sensors/gravity.ts`.
-3. **Audio sample rate** (48 k vs 44.1 k) — Diagnostics → Runtime. Determines
-   the ultrasonic ceiling for Instruments 8 and 10.
-6. **WebGPU exposure** — the Diagnostics WebGPU row, checked in each of Safari,
-   Chrome and Edge. Decides Instrument 9's backend.
-7. **Wake Lock availability** — Diagnostics → Runtime, per browser.
+   comment block at the top of `src/sensors/gravity.ts`. **Still open.**
+2. **Whether Core Motion's fusion damps the gyro/compass residual** enough to
+   kill Instrument 7's signal B. The one genuinely open technical question in
+   the handoff, and the gate on M2. **Still open — measure before building.**
+3. **Audio sample rate** — Diagnostics → Runtime. Expect 48 kHz on iOS 26,
+   giving a 22 kHz ultrasonic ceiling. Confirm rather than assume.
+6. **WebGPU exposure** — Safari 26 has it on by default. Whether WKWebView
+   exposes it to Chrome and Edge at the same OS version is **still open** and
+   decides Instrument 9's backend.
+7. **Wake Lock** — guaranteed by the floor; the Diagnostics row confirms it is
+   actually held, which is a different claim.
 8. **Motion-prompt behaviour and denial recovery** — exercise the boot gate in
-   each browser.
+   each browser. **Still open.**
 
 Acceptance tests per §8, in build order:
 
