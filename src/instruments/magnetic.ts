@@ -91,6 +91,10 @@ export class MagneticInstrument extends Instrument {
     resetFilters();
     this.reset();
 
+    // Status first. An error that explains why every number is a dash belongs
+    // above the dashes, not three sections below them.
+    const stateBox = el('div');
+
     append(scroll, notice('warn',
       '<strong>This is a relative index, not a field strength.</strong> No iOS browser can read the magnetometer, so no µT value is obtainable and none is shown. ' +
       'What is measured is the disagreement between the gyroscope, which magnetism cannot touch, and the compass, which it can. The index is that disagreement expressed in multiples of this device\'s own measured noise floor.'));
@@ -101,7 +105,8 @@ export class MagneticInstrument extends Instrument {
     const rFloor = readout('Noise floor', { unit: '°', note: '' });
     const rPeak = readout('Peak index', { unit: '×', note: 'since reset' });
 
-    append(scroll, section('Detection'), rIndex.node,
+    append(scroll, stateBox,
+      section('Detection'), rIndex.node,
       el('div', { class: 'grid' }, rResidual.node, rFloor.node, rPeak.node));
 
     const scope = autoCanvas();
@@ -118,14 +123,13 @@ export class MagneticInstrument extends Instrument {
     append(scroll, section('Corroboration'),
       el('div', { class: 'grid' }, rAcc.node, rAccDelta.node, rYaw.node));
 
-    // --- state / controls -------------------------------------------------
-    const stateBox = el('div');
+    // --- controls ----------------------------------------------------------
     const btnReset = el('button', { class: 'btn', type: 'button' }, 'Re-learn noise floor');
     btnReset.addEventListener('click', () => { resetFilters(); this.reset(); });
     const btnClear = el('button', { class: 'btn btn--alt', type: 'button' }, 'Clear events');
     btnClear.addEventListener('click', () => { this.events = []; this.peakIndex = 0; renderEvents(); });
 
-    append(scroll, stateBox, el('div', { class: 'btn-row' }, btnReset, btnClear));
+    append(scroll, el('div', { class: 'btn-row' }, btnReset, btnClear));
 
     // --- event log --------------------------------------------------------
     const eventBox = el('div');
@@ -150,12 +154,12 @@ export class MagneticInstrument extends Instrument {
       append(t, body);
       append(eventBox, t);
     };
-    append(scroll, section('Events'), eventBox);
-    renderEvents();
-
     append(scroll, notice('warn',
       '<strong>What sets this off.</strong> Ferrous mass and permanent magnets: speakers, laptop lids and hinges, motors, steel furniture and structural steel, magnetic mounts. ' +
       'It is most sensitive with the phone resting still — then the gyroscope predicts no heading change at all, and anything the compass reports is disturbance. Moving the phone raises the floor because gyro integration error enters the comparison.'));
+
+    append(scroll, section('Events'), eventBox);
+    renderEvents();
 
     // --- stream -----------------------------------------------------------
     let lastT = 0;
@@ -197,10 +201,10 @@ export class MagneticInstrument extends Instrument {
 
       // Event bookkeeping.
       if (this.index >= ALERT_SIGMA) {
-        if (!this.inEvent) this.inEvent = { start: s.t, end: s.t, peak: this.index, peakAcc: s.accuracy };
+        if (!this.inEvent) this.inEvent = { start: s.t, end: s.t, peak: this.index, peakAcc: s.accuracy ?? 0 };
         this.inEvent.end = s.t;
         this.inEvent.peak = Math.max(this.inEvent.peak, this.index);
-        this.inEvent.peakAcc = Math.max(this.inEvent.peakAcc, s.accuracy);
+        this.inEvent.peakAcc = Math.max(this.inEvent.peakAcc, s.accuracy ?? 0);
       } else if (this.inEvent && s.t - this.inEvent.end > 0.75) {
         // Only log events that lasted long enough to be real.
         if (this.inEvent.end - this.inEvent.start > 0.15) {
@@ -211,7 +215,7 @@ export class MagneticInstrument extends Instrument {
         this.inEvent = null;
       }
 
-      this.trace.push({ index: this.index, acc: s.accuracy });
+      this.trace.push({ index: this.index, acc: s.accuracy ?? 0 });
       if (this.trace.length > TRACE_N) this.trace.shift();
     });
 
@@ -221,15 +225,44 @@ export class MagneticInstrument extends Instrument {
       scope.resize();
       const s = this.sample;
 
-      const usable = s !== null && s.accuracy >= 0 && s.accuracy <= MAX_USABLE_ACCURACY;
+      // A ladder, not a boolean. Each rung is a different failure with a
+      // different remedy, and collapsing them loses exactly the information
+      // the user needs. In particular "accuracy was never reported" is NOT
+      // the same as "accuracy is good" — conflating the two is how a gate
+      // designed to catch an uncalibrated compass ends up showing green while
+      // knowing nothing.
+      const orientDead = s !== null && s.orientAgeMs > 2000;
+      const accUnknown = s !== null && s.accuracy === null;
+      const accInvalid = s !== null && s.accuracy !== null && s.accuracy < 0;
+      const accTooHigh = s !== null && s.accuracy !== null && s.accuracy > MAX_USABLE_ACCURACY;
+      const usable = s !== null && !orientDead && !accUnknown && !accInvalid && !accTooHigh;
       const learning = this.floor === null;
-      const state = !s ? 'nodata' : !usable ? 'uncal' : learning ? 'learning' : 'ready';
+      const state =
+          !s          ? 'nodata'
+        : orientDead  ? 'noevents'
+        : accUnknown  ? 'noaccuracy'
+        : accInvalid  ? 'invalid'
+        : accTooHigh  ? 'uncal'
+        : learning    ? 'learning'
+        : 'ready';
 
       if (state !== lastState) {
         lastState = state;
         clear(stateBox);
         if (state === 'nodata') {
           append(stateBox, notice('bad', '<strong>No orientation data.</strong> Check the motion permission was granted, and that Settings → Safari → Motion &amp; Orientation Access is on — that one WebKit toggle governs Chrome and Edge too.'));
+        } else if (state === 'noevents') {
+          append(stateBox, notice('bad',
+            '<strong>No orientation events are arriving — index suppressed.</strong> The heading is frozen because nothing is updating it, not because the field is quiet. ' +
+            'Check the orientation permission was granted, and that Settings → Safari → Motion &amp; Orientation Access is on. Leaving and re-entering this screen re-subscribes from scratch.'));
+        } else if (state === 'noaccuracy') {
+          append(stateBox, notice('bad',
+            '<strong>Heading accuracy is not being reported — index suppressed.</strong> Orientation events are arriving, but <code>webkitCompassAccuracy</code> is absent, so there is no way to tell a calibrated compass from a wildly drifting one. ' +
+            'That value comes from Core Location, so the usual cause is that <strong>Location Services is off for this browser</strong> — check Settings → Privacy &amp; Security → Location Services, and the site\'s own location permission. ' +
+            'The index is suppressed rather than shown, because an uncalibrated compass invents anomalies far larger than any real one.'));
+        } else if (state === 'invalid') {
+          append(stateBox, notice('bad',
+            '<strong>iOS reports the heading as invalid — index suppressed.</strong> A negative <code>webkitCompassAccuracy</code> means the compass needs calibrating. Wave the phone in a figure-eight through all three axes for ten to fifteen seconds.'));
         } else if (state === 'uncal') {
           append(stateBox, notice('bad',
             `<strong>Compass not calibrated — index suppressed.</strong> Wave the phone in a figure-eight through all three axes for ten to fifteen seconds. ` +
@@ -242,7 +275,14 @@ export class MagneticInstrument extends Instrument {
       }
 
       if (!usable || learning || !s) {
-        rIndex.set('—', state === 'uncal' ? 'compass not calibrated' : state === 'learning' ? 'learning noise floor…' : 'no data');
+        const why =
+            state === 'noevents'   ? 'no orientation events'
+          : state === 'noaccuracy' ? 'heading accuracy not reported'
+          : state === 'invalid'    ? 'iOS reports heading invalid'
+          : state === 'uncal'      ? 'compass not calibrated'
+          : state === 'learning'   ? 'learning noise floor…'
+          : 'no data';
+        rIndex.set('—', why);
         rIndex.setState('idle');
         rResidual.set(s ? fmt(s.residualRaw - this.bias, 3) : '—');
         rFloor.set(this.floor === null ? '—' : fmt(this.floor, 4), this.floor === null ? 'measuring' : '');
@@ -261,14 +301,18 @@ export class MagneticInstrument extends Instrument {
       rPeak.setState(this.peakIndex >= ALERT_SIGMA ? 'warn' : 'idle');
 
       if (s) {
-        rAcc.set(s.accuracy < 0 ? 'INVALID' : fmt(s.accuracy, 0),
-          s.accuracy < 0 ? 'negative — heading not valid' : usable ? 'good' : `above ${MAX_USABLE_ACCURACY}° limit`);
-        rAcc.setState(s.accuracy < 0 || !usable ? 'bad' : 'ok');
-        const dAcc = this.baseAccuracy === null ? null : s.accuracy - this.baseAccuracy;
+        rAcc.set(
+          s.accuracy === null ? 'NOT REPORTED' : s.accuracy < 0 ? 'INVALID' : fmt(s.accuracy, 0),
+          s.accuracy === null ? 'webkitCompassAccuracy absent — check Location Services'
+            : s.accuracy < 0 ? 'negative — heading not valid'
+            : usable ? 'good' : `above ${MAX_USABLE_ACCURACY}° limit`);
+        rAcc.setState(s.accuracy === null || s.accuracy < 0 || !usable ? 'bad' : 'ok');
+        const dAcc = this.baseAccuracy === null || s.accuracy === null ? null : s.accuracy - this.baseAccuracy;
         rAccDelta.set(dAcc === null ? '—' : `${dAcc >= 0 ? '+' : ''}${fmt(dAcc, 1)}`,
           dAcc === null ? 'no baseline yet' : dAcc >= 10 ? 'signal A agrees' : 'signal A quiet');
         rAccDelta.setState(dAcc !== null && dAcc >= 10 ? 'warn' : 'idle');
-        rYaw.set(fmt(s.yawRate, 1), Math.abs(s.yawRate) > 5 ? 'moving — floor is raised' : 'still');
+        rYaw.set(fmt(s.yawRate, 1),
+          `${Math.abs(s.yawRate) > 5 ? 'moving — floor is raised' : 'still'} · orientation ${fmt(s.orientHz, 0)} Hz`);
         rYaw.setState(Math.abs(s.yawRate) > 15 ? 'warn' : 'ok');
       }
 

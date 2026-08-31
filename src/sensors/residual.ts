@@ -44,8 +44,31 @@ export interface ResidualSample {
   /** Cumulative |yaw| since the stream started, degrees. */
   rotated: number;
   heading: number | null;
-  /** webkitCompassAccuracy. Negative means invalid. */
-  accuracy: number;
+  /**
+   * webkitCompassAccuracy in degrees. Negative means iOS considers the heading
+   * invalid. NULL means it was never reported at all, which is a different and
+   * more dangerous condition — see below.
+   */
+  accuracy: number | null;
+  /**
+   * Rate of `deviceorientation` events, Hz, over a rolling second. For display.
+   *
+   * A frozen heading is ambiguous without this: the fusion could be rejecting
+   * the magnetometer, or no events could be arriving in the first place. Any
+   * instrument reading a conclusion out of a flat signal has to know which.
+   */
+  orientHz: number;
+  /**
+   * Milliseconds since the last `deviceorientation` event; Infinity if none
+   * has ever arrived.
+   *
+   * Gate on THIS rather than on the rate. A rolling-window rate necessarily
+   * reads zero for its first window, so a gate built on it screams "no
+   * orientation events" for a second every time the screen opens, and then
+   * lags a real stall by up to a second. Age is correct immediately and in
+   * both directions.
+   */
+  orientAgeMs: number;
   /** Sign convention currently relating yaw rate to increasing heading. */
   sign: 1 | -1;
   /** Confidence in that sign, 0..1. */
@@ -61,6 +84,10 @@ let detrendPrimed = false;
 let prevHeading: number | null = null;
 let clock = 0;
 let rotated = 0;
+let orientEvents = 0;
+let orientHz = 0;
+let orientTick = 0;
+let lastOrientAt = 0;
 
 /**
  * Clear the filters. Call at the start of any measurement session, otherwise
@@ -80,13 +107,33 @@ export const signConfidence = (): number => Math.min(1, Math.abs(signEvidence) /
 export const residual = new SensorStream<ResidualSample>((emit) => {
   let gDown: Vec3 | null = null;
   let heading: number | null = null;
-  let accuracy = 0;
+
+  /**
+   * NOT zero. Zero is a perfectly good accuracy value meaning "the heading is
+   * exact", so seeding with it makes an absent reading indistinguishable from
+   * a superb one — and every downstream gate of the form
+   * `accuracy >= 0 && accuracy <= LIMIT` then passes with flying colours while
+   * knowing nothing at all. On iOS this is reachable: webkitCompassAccuracy
+   * comes from CLHeading, so it can stay null when Location Services is off
+   * even though deviceorientation keeps firing normally.
+   */
+  let accuracy: number | null = null;
 
   const unGrav = gravity.subscribe((g) => { gDown = g.down; });
   const unOrient = orientation.subscribe((o) => {
+    orientEvents++;
+    lastOrientAt = performance.now();
     heading = o.heading;
     if (o.headingAccuracy !== null) accuracy = o.headingAccuracy;
   });
+
+  orientTick = performance.now();
+  const rateTimer = setInterval(() => {
+    const now = performance.now();
+    orientHz = orientEvents / Math.max(0.001, (now - orientTick) / 1000);
+    orientEvents = 0;
+    orientTick = now;
+  }, 1000);
 
   // Everything runs on the motion clock: it is the only stream carrying a
   // trustworthy dt. Heading contributes zero on samples where it did not
@@ -138,10 +185,12 @@ export const residual = new SensorStream<ResidualSample>((emit) => {
       rotated,
       heading,
       accuracy,
+      orientHz,
+      orientAgeMs: lastOrientAt === 0 ? Infinity : performance.now() - lastOrientAt,
       sign,
       signConfidence: signConfidence(),
     });
   });
 
-  return () => { unMotion(); unOrient(); unGrav(); };
+  return () => { clearInterval(rateTimer); unMotion(); unOrient(); unGrav(); };
 });

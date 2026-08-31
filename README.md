@@ -26,7 +26,7 @@ the source point back at it.
 | 4 | Seismograph / vibration | ✅ built |
 | 5 | Audio spectrum analyzer | ✅ built |
 | — | Diagnostics | ✅ built |
-| — | Magnetic residual probe (§11 q.2 harness) | ✅ built — awaiting a magnet sweep |
+| — | Magnetic residual probe (§11 q.2 harness) | retired from the rail — its question is answered (§8.7) |
 | 6 | Floor-plane rangefinder | ✅ built and **verified on device** — within inches after two-point calibration |
 | 7 | Magnetic anomaly detector | ✅ built — needs on-device verification |
 | 8 | Ultrasonic Doppler | M3 — stub |

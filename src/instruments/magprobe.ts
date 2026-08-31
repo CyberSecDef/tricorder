@@ -1,4 +1,17 @@
 /**
+ * RETIRED — not in the navigation rail.
+ *
+ * This screen existed to answer §11 q.2, and it did: the gyro/compass residual
+ * is not damped by Core Motion, reaching 691x its own noise floor. That result
+ * and the data behind it are recorded in §8.7 of the handoff, and the residual
+ * maths it validated now lives in sensors/residual.ts where Instrument 7 uses
+ * it. Its job is finished.
+ *
+ * It is kept compiling rather than deleted only so the measurement apparatus
+ * can be resurrected if a future device disagrees with the result. If nothing
+ * has needed it by the time Instruments 8-10 are done, delete it — the finding
+ * lives in the handoff, not here.
+ *
  * §11 q.2 — measurement harness for the gyro/compass residual.
  *
  * This is NOT Instrument 7. It is the experiment that decides whether
@@ -369,7 +382,9 @@ export class MagProbeInstrument extends Instrument {
       this.yawRate = r.yawRate;
       this.rotated = r.rotated;
       this.heading = r.heading;
-      this.accuracy = r.accuracy;
+      // -1 is this screen's existing 'not valid' sentinel; an unreported
+      // accuracy is exactly that, and must never read as a good 0.
+      this.accuracy = r.accuracy ?? -1;
       this.sign = r.sign;
       this.signEvidence = r.signConfidence * 400;
 
@@ -377,7 +392,7 @@ export class MagProbeInstrument extends Instrument {
         t: r.t - (this.recording ? this.runStart : 0),
         residual: r.residual,
         residualRaw: r.residualRaw,
-        accuracy: r.accuracy,
+        accuracy: r.accuracy ?? -1,
         yawRate: r.yawRate,
         rotated: r.rotated,
       };
