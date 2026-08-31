@@ -135,6 +135,17 @@ WKWebView-versus-Safari question is not a version question:
 8. **Motion-prompt behaviour and denial recovery** — exercise the boot gate in
    each browser. **Still open.**
 
+### Device results so far — iPhone, iOS 26.6.1
+
+| Check | Result |
+|---|---|
+| §11 q.1 gravity sign | **Answered.** Flat screen-up reads (-0.03, 0.21, -9.80) → iOS convention, SIGN = +1 |
+| Compass accuracy | Pass |
+| Seismograph | Pass |
+| Geo | Pass |
+| Spectrum | **Failed** — dangling AnalyserNode was never fed by WebKit. Fixed; re-verify |
+| WebGPU | Present (confirm per browser for §11 q.6) |
+
 Acceptance tests per §8, in build order:
 
 - **Compass** — reads within ~5° of a known-good compass; the bubble agrees with

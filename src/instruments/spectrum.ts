@@ -36,6 +36,9 @@ export class SpectrumInstrument extends Instrument {
   private mic: MicHandle | null = null;
   private analyser: AnalyserNode | null = null;
   private bins: Float32Array = new Float32Array(0);
+  private timeDomain: Float32Array = new Float32Array(0);
+  private inputRms = 0;
+  private silentFrames = 0;
   private peaks: Float32Array = new Float32Array(0);
   private peakHold = true;
   private sampleRate = 0;
@@ -72,12 +75,30 @@ export class SpectrumInstrument extends Instrument {
     analyser.minDecibels = FLOOR_DB;
     analyser.maxDecibels = CEIL_DB;
     this.mic.source.connect(analyser);
-    // Deliberately NOT connected to destination — that would feed back.
+
+    // WebKit only pulls an audio graph that terminates at the destination. An
+    // AnalyserNode left dangling is never fed, and getFloatFrequencyData
+    // returns a flat -Infinity forever — silently, with no error. (Chromium
+    // processes it regardless, so this reproduces ONLY on the target platform.)
+    // Terminating through a zero-gain node keeps the graph live while emitting
+    // nothing, so there is no feedback path from speaker to mic.
+    const mute = ctx.createGain();
+    mute.gain.value = 0;
+    analyser.connect(mute);
+    mute.connect(ctx.destination);
+
     this.analyser = analyser;
-    this.onCleanup(() => { try { analyser.disconnect(); } catch { /* gone */ } });
+    this.onCleanup(() => {
+      for (const n of [analyser, mute]) { try { n.disconnect(); } catch { /* gone */ } }
+    });
+
+    // iOS can re-negotiate the audio session when a mic track goes live and
+    // leave the context suspended behind our back.
+    if (ctx.state === 'suspended') { try { await ctx.resume(); } catch { /* surfaced below */ } }
 
     this.binHz = this.sampleRate / analyser.fftSize;
     this.bins = new Float32Array(analyser.frequencyBinCount);
+    this.timeDomain = new Float32Array(analyser.fftSize);
     this.peaks = new Float32Array(analyser.frequencyBinCount).fill(FLOOR_DB);
 
     if (!profileApplied(this.mic.settings, 'raw')) {
@@ -98,11 +119,13 @@ export class SpectrumInstrument extends Instrument {
     const rBroad = readout('Broadband', { unit: 'dBFS', note: 'RMS across all bins' });
     const rBin = readout('Bin width', { unit: 'Hz', note: '' });
     const rRate = readout('Sample rate', { unit: 'Hz', note: '' });
+    const rInput = readout('Input RMS', { note: 'time domain — proves samples are arriving' });
 
     append(
       scroll,
       el('div', { class: 'grid' }, rDom.node, rNote.node),
-      el('div', { class: 'grid' }, rLevel.node, rBroad.node, rBin.node, rRate.node),
+      el('div', { class: 'grid' }, rLevel.node, rBroad.node, rInput.node),
+      el('div', { class: 'grid' }, rBin.node, rRate.node),
     );
 
     const btnPeak = el('button', { class: 'btn', type: 'button' }, 'Peak hold: on');
@@ -121,6 +144,28 @@ export class SpectrumInstrument extends Instrument {
         '<strong>dBFS, not dB SPL.</strong> Absolute sound pressure needs a calibrated reference the phone does not have, so 0 dBFS is simply digital full scale on this microphone. Compare readings to each other, not to a sound-level meter.'),
     );
 
+    // Sits directly under the status box at the top, where an error belongs —
+    // not below the fold with the buttons.
+    const silenceBox = el('div');
+    scroll.insertBefore(silenceBox, statusBox.nextSibling);
+    let silenceShown = false;
+    const renderSilence = () => {
+      // ~2 s of exact zeros is not a quiet room, it is a broken pipeline.
+      const dead = this.silentFrames > 120;
+      if (dead === silenceShown) return;
+      silenceShown = dead;
+      silenceBox.replaceChildren();
+      if (dead) {
+        silenceBox.appendChild(notice('bad',
+          '<strong>No audio samples are arriving.</strong> Time-domain input is exactly zero <em>and</em> every frequency bin is -Infinity, which is a dead graph rather than a quiet room.' +
+          '<ul>' +
+          '<li>Check the microphone permission was actually granted for this site.</li>' +
+          '<li>Another app or tab may hold the microphone — iOS gives it to one client at a time.</li>' +
+          '<li>Leave this screen and come back; that re-acquires the track from scratch.</li>' +
+          '</ul>'));
+      }
+    };
+
     // --- Render -----------------------------------------------------------
     this.loop(() => {
       spec.resize();
@@ -128,8 +173,30 @@ export class SpectrumInstrument extends Instrument {
       if (!a) return;
 
       a.getFloatFrequencyData(this.bins as Float32Array<ArrayBuffer>);
-
+      a.getFloatTimeDomainData(this.timeDomain as Float32Array<ArrayBuffer>);
       const minBin = Math.max(1, Math.floor(MIN_HZ / this.binHz));
+
+      // Distinguishing "the room is silent" from "the audio pipeline is
+      // broken" needs two different pieces of evidence, because either one
+      // alone gives false positives:
+      //   - time-domain RMS of exactly zero. A real microphone always has a
+      //     noise floor, so exact zero means no samples. But a synthetic or
+      //     muted source can also emit true digital silence.
+      //   - every frequency bin at -Infinity. An analyser that is never fed
+      //     has an internal magnitude of zero, and 20·log10(0) is -Infinity.
+      //     A merely quiet room still produces finite, very negative bins.
+      // Requiring both is what separates a dead graph from a quiet one.
+      let sq = 0;
+      for (let i = 0; i < this.timeDomain.length; i++) sq += this.timeDomain[i] * this.timeDomain[i];
+      this.inputRms = Math.sqrt(sq / this.timeDomain.length);
+
+      let anyFinite = false;
+      for (let i = minBin; i < this.bins.length; i += 16) {
+        if (Number.isFinite(this.bins[i])) { anyFinite = true; break; }
+      }
+      if (this.inputRms === 0 && !anyFinite) this.silentFrames++; else this.silentFrames = 0;
+      renderSilence();
+
       const searchMin = Math.max(minBin + 1, Math.floor(SEARCH_MIN_HZ / this.binHz));
       let best = -1;
       let sumPow = 0;
@@ -168,6 +235,9 @@ export class SpectrumInstrument extends Instrument {
       rBroad.set(fmt(this.broadbandDb, 1));
       rBin.set(fmt(this.binHz, 3), `${FFT_SIZE}-point FFT`);
       rRate.set(String(this.sampleRate), `nyquist ${fmt(this.sampleRate / 2000, 1)} kHz`);
+      rInput.set(this.inputRms > 0 ? this.inputRms.toExponential(2) : '0',
+        this.inputRms > 0 ? `${fmt(20 * Math.log10(this.inputRms), 1)} dBFS · ctx ${ctx.state}` : `no samples · ctx ${ctx.state}`);
+      rInput.setState(this.inputRms > 1e-5 ? 'ok' : this.inputRms > 0 ? 'warn' : 'bad');
 
       specCap.textContent = `${MIN_HZ} HZ – ${fmt(this.sampleRate / 2000, 1)} KHZ · ${FLOOR_DB} TO ${CEIL_DB} dBFS`;
       this.drawSpectrum(spec);
