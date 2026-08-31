@@ -1,0 +1,365 @@
+/**
+ * Instrument 7 — Magnetic anomaly detector (§8.7).
+ *
+ * The raw magnetometer is unreachable in every iOS browser, so this does not
+ * report field strength and never will. What it reports is DISTURBANCE, from
+ * two signals, and it labels the result a relative index because that is what
+ * it is.
+ *
+ * Signal B (primary) — the gyro/compass residual. The gyroscope is
+ * magnetically immune and the compass is not, so their disagreement is the
+ * field changing underneath a device that did not move.
+ *
+ * Signal A (corroboration) — webkitCompassAccuracy. iOS's own estimate of how
+ * wrong the heading is.
+ *
+ * Everything below is shaped by what §11 q.2 actually measured on device
+ * rather than by what the handoff guessed:
+ *
+ *   - Signal B is NOT damped by Core Motion. Noise floor 0.021° RMS resting on
+ *     a table; 14.28° peak with a neodymium magnet at the top of the phone.
+ *     691x. It is the strongest signal in the instrument set.
+ *   - Signal A responds but lags by seconds and missed one of two transients
+ *     in the same recording. It corroborates; it does not detect.
+ *   - Compass calibration gates everything. At 89° accuracy the heading wanders
+ *     60° unprompted — a false anomaly larger than any real one — so the
+ *     instrument refuses to report an index until iOS says the compass is good.
+ *   - The index is expressed in multiples of a measured noise floor, not in
+ *     degrees, because the floor is what makes 14° meaningful.
+ */
+
+import { Instrument } from '../ui/screen';
+import { el, append, readout, autoCanvas, fmt, section, notice, clear } from '../ui/dom';
+import { residual, resetFilters, type ResidualSample } from '../sensors/residual';
+
+/** Above this webkitCompassAccuracy the heading wanders more than a magnet moves it. */
+const MAX_USABLE_ACCURACY = 20;
+/** Seconds of quiet used to learn the noise floor before reporting an index. */
+const LEARN_S = 3;
+/** Never divide by a floor below this, in degrees. Measured floors are ~0.02. */
+const MIN_FLOOR = 0.005;
+/** Index at which we call it an anomaly. */
+const ALERT_SIGMA = 8;
+/** The floor only tracks quiet: above this multiple we stop updating it. */
+const FLOOR_FREEZE_SIGMA = 4;
+/** Time constant for the quiet-period floor tracker, seconds. */
+const FLOOR_TAU = 30;
+/**
+ * Time constant for the gyro-bias tracker, seconds.
+ *
+ * This instrument does its own bias removal rather than using the stream's
+ * detrended output, for one reason: the tracker must FREEZE while an anomaly
+ * is in progress. A plain EMA charges up during the event, so when the event
+ * ends the corrected residual swings the other way and stays there for a full
+ * time constant — the detector reports a phantom anomaly for 25 s after every
+ * real one, and never re-arms. Freezing while triggered makes recovery
+ * immediate. Gyro bias is slow and always present; it does not need tracking
+ * during the few seconds an anomaly lasts.
+ */
+const BIAS_TAU = 25;
+/** Rolling trace length, ~15 s at 60 Hz. */
+const TRACE_N = 900;
+
+interface Event { start: number; end: number; peak: number; peakAcc: number }
+
+export class MagneticInstrument extends Instrument {
+  readonly id = 'magnetic';
+  readonly title = 'Magnetic Anomaly';
+  override readonly subtitle = 'Relative index · no µT reading exists';
+  override readonly resources = 'orientation + motion';
+
+  private floor: number | null = null;
+  private bias = 0;
+  private biasPrimed = false;
+  private learnStart = 0;
+  private learnSum = 0;
+  private learnCount = 0;
+  private index = 0;
+  private corrected = 0;
+  private peakIndex = 0;
+  private sample: ResidualSample | null = null;
+  private baseAccuracy: number | null = null;
+  private trace: Array<{ index: number; acc: number }> = [];
+  private events: Event[] = [];
+  private inEvent: Event | null = null;
+
+  protected build(root: HTMLElement): void {
+    const scroll = el('div', { class: 'stage__scroll' });
+    append(root, scroll);
+
+    // A fresh session must not inherit filter state (see residual.ts).
+    resetFilters();
+    this.reset();
+
+    append(scroll, notice('warn',
+      '<strong>This is a relative index, not a field strength.</strong> No iOS browser can read the magnetometer, so no µT value is obtainable and none is shown. ' +
+      'What is measured is the disagreement between the gyroscope, which magnetism cannot touch, and the compass, which it can. The index is that disagreement expressed in multiples of this device\'s own measured noise floor.'));
+
+    // --- primary readouts -------------------------------------------------
+    const rIndex = readout('Anomaly index', { unit: '× noise', note: '', wide: true });
+    const rResidual = readout('Residual', { unit: '°', note: 'signal B — gyro vs compass' });
+    const rFloor = readout('Noise floor', { unit: '°', note: '' });
+    const rPeak = readout('Peak index', { unit: '×', note: 'since reset' });
+
+    append(scroll, section('Detection'), rIndex.node,
+      el('div', { class: 'grid' }, rResidual.node, rFloor.node, rPeak.node));
+
+    const scope = autoCanvas();
+    const scopeBox = el('div', { class: 'scope', style: 'height:min(28dvh,220px)' }, scope.node);
+    const scopeCap = el('div', { class: 'scope__cap', text: '' });
+    append(scopeBox, scopeCap);
+    append(scroll, scopeBox);
+
+    // --- corroboration ----------------------------------------------------
+    const rAcc = readout('Compass accuracy', { unit: '°', note: 'signal A — corroboration only' });
+    const rAccDelta = readout('Accuracy shift', { unit: '°', note: 'from the quiet baseline' });
+    const rYaw = readout('Yaw rate', { unit: '°/s', note: 'device rotation' });
+
+    append(scroll, section('Corroboration'),
+      el('div', { class: 'grid' }, rAcc.node, rAccDelta.node, rYaw.node));
+
+    // --- state / controls -------------------------------------------------
+    const stateBox = el('div');
+    const btnReset = el('button', { class: 'btn', type: 'button' }, 'Re-learn noise floor');
+    btnReset.addEventListener('click', () => { resetFilters(); this.reset(); });
+    const btnClear = el('button', { class: 'btn btn--alt', type: 'button' }, 'Clear events');
+    btnClear.addEventListener('click', () => { this.events = []; this.peakIndex = 0; renderEvents(); });
+
+    append(scroll, stateBox, el('div', { class: 'btn-row' }, btnReset, btnClear));
+
+    // --- event log --------------------------------------------------------
+    const eventBox = el('div');
+    const renderEvents = () => {
+      clear(eventBox);
+      if (!this.events.length) {
+        append(eventBox, el('div', { class: 'dim mono', style: 'font-size:11px', text: 'No anomalies detected yet.' }));
+        return;
+      }
+      const t = el('table', { class: 'dtable' });
+      const body = el('tbody');
+      append(body, el('tr', {},
+        el('td', { text: 'when' }),
+        el('td', { text: 'duration', style: 'text-align:right' }),
+        el('td', { text: 'peak', style: 'text-align:right' })));
+      for (const ev of [...this.events].reverse().slice(0, 8)) {
+        append(body, el('tr', { 'data-state': ev.peak > 40 ? 'bad' : 'warn' },
+          el('td', { text: `t+${ev.start.toFixed(1)} s` }),
+          el('td', { text: `${(ev.end - ev.start).toFixed(1)} s`, style: 'text-align:right' }),
+          el('td', { text: `${ev.peak.toFixed(0)}×`, style: 'text-align:right' })));
+      }
+      append(t, body);
+      append(eventBox, t);
+    };
+    append(scroll, section('Events'), eventBox);
+    renderEvents();
+
+    append(scroll, notice('warn',
+      '<strong>What sets this off.</strong> Ferrous mass and permanent magnets: speakers, laptop lids and hinges, motors, steel furniture and structural steel, magnetic mounts. ' +
+      'It is most sensitive with the phone resting still — then the gyroscope predicts no heading change at all, and anything the compass reports is disturbance. Moving the phone raises the floor because gyro integration error enters the comparison.'));
+
+    // --- stream -----------------------------------------------------------
+    let lastT = 0;
+    this.sub(residual, (s) => {
+      this.sample = s;
+      const dt = lastT === 0 ? 1 / 60 : Math.min(Math.max(s.t - lastT, 1e-4), 0.5);
+      lastT = s.t;
+
+      // Own bias tracker, on the RAW residual, so it can be frozen while
+      // triggered. See BIAS_TAU.
+      if (!this.biasPrimed) { this.bias = s.residualRaw; this.biasPrimed = true; }
+      const corrected = s.residualRaw - this.bias;
+
+      // Learn the floor from the first quiet seconds, then keep tracking it
+      // during quiet, freezing while an event is in progress so the anomaly
+      // cannot raise the very floor it is measured against.
+      if (this.floor === null) {
+        if (this.learnStart === 0) this.learnStart = s.t;
+        this.learnSum += corrected * corrected;
+        this.learnCount++;
+        this.bias += (s.residualRaw - this.bias) * (1 - Math.exp(-dt / BIAS_TAU));
+        if (s.t - this.learnStart >= LEARN_S && this.learnCount > 30) {
+          this.floor = Math.max(Math.sqrt(this.learnSum / this.learnCount), MIN_FLOOR);
+          this.baseAccuracy = s.accuracy;
+        }
+        return;
+      }
+
+      this.corrected = corrected;
+      this.index = Math.abs(corrected) / this.floor;
+      if (this.index > this.peakIndex) this.peakIndex = this.index;
+
+      // Both trackers freeze together while triggered.
+      if (this.index < FLOOR_FREEZE_SIGMA) {
+        this.floor = Math.max(MIN_FLOOR,
+          this.floor + (Math.abs(corrected) - this.floor) * (1 - Math.exp(-dt / FLOOR_TAU)));
+        this.bias += (s.residualRaw - this.bias) * (1 - Math.exp(-dt / BIAS_TAU));
+      }
+
+      // Event bookkeeping.
+      if (this.index >= ALERT_SIGMA) {
+        if (!this.inEvent) this.inEvent = { start: s.t, end: s.t, peak: this.index, peakAcc: s.accuracy };
+        this.inEvent.end = s.t;
+        this.inEvent.peak = Math.max(this.inEvent.peak, this.index);
+        this.inEvent.peakAcc = Math.max(this.inEvent.peakAcc, s.accuracy);
+      } else if (this.inEvent && s.t - this.inEvent.end > 0.75) {
+        // Only log events that lasted long enough to be real.
+        if (this.inEvent.end - this.inEvent.start > 0.15) {
+          this.events.push(this.inEvent);
+          if (this.events.length > 50) this.events.shift();
+          renderEvents();
+        }
+        this.inEvent = null;
+      }
+
+      this.trace.push({ index: this.index, acc: s.accuracy });
+      if (this.trace.length > TRACE_N) this.trace.shift();
+    });
+
+    // --- render -----------------------------------------------------------
+    let lastState = '';
+    this.loop(() => {
+      scope.resize();
+      const s = this.sample;
+
+      const usable = s !== null && s.accuracy >= 0 && s.accuracy <= MAX_USABLE_ACCURACY;
+      const learning = this.floor === null;
+      const state = !s ? 'nodata' : !usable ? 'uncal' : learning ? 'learning' : 'ready';
+
+      if (state !== lastState) {
+        lastState = state;
+        clear(stateBox);
+        if (state === 'nodata') {
+          append(stateBox, notice('bad', '<strong>No orientation data.</strong> Check the motion permission was granted, and that Settings → Safari → Motion &amp; Orientation Access is on — that one WebKit toggle governs Chrome and Edge too.'));
+        } else if (state === 'uncal') {
+          append(stateBox, notice('bad',
+            `<strong>Compass not calibrated — index suppressed.</strong> Wave the phone in a figure-eight through all three axes for ten to fifteen seconds. ` +
+            `Above ${MAX_USABLE_ACCURACY}° of heading error the compass wanders on its own by more than a magnet moves it, so any index would be measuring the compass rather than the field.`));
+        } else if (state === 'learning') {
+          append(stateBox, notice('warn', `<strong>Learning the noise floor.</strong> Hold still and keep magnets away for ${LEARN_S} seconds. The index is expressed in multiples of this, so it has to be measured before anything can be reported.`));
+        } else {
+          append(stateBox, notice('ok', '<strong>Ready.</strong> The index reads the disagreement between gyroscope and compass, in multiples of the floor just measured. Bring something ferrous near the top of the phone.'));
+        }
+      }
+
+      if (!usable || learning || !s) {
+        rIndex.set('—', state === 'uncal' ? 'compass not calibrated' : state === 'learning' ? 'learning noise floor…' : 'no data');
+        rIndex.setState('idle');
+        rResidual.set(s ? fmt(s.residualRaw - this.bias, 3) : '—');
+        rFloor.set(this.floor === null ? '—' : fmt(this.floor, 4), this.floor === null ? 'measuring' : '');
+      } else {
+        const alert = this.index >= ALERT_SIGMA;
+        rIndex.set(this.index < 1000 ? fmt(this.index, 1) : '999+',
+          alert ? `ANOMALY — ${fmt(Math.abs(this.corrected), 2)}° of unexplained heading` : 'quiet');
+        rIndex.setState(alert ? 'bad' : this.index >= FLOOR_FREEZE_SIGMA ? 'warn' : 'ok');
+        rResidual.set(fmt(this.corrected, 3), `raw ${fmt(s.residualRaw, 3)}° · bias ${fmt(this.bias, 3)}°`);
+        rResidual.setState(alert ? 'bad' : 'ok');
+        rFloor.set(fmt(this.floor!, 4), `alert at ${ALERT_SIGMA}× = ${fmt(this.floor! * ALERT_SIGMA, 3)}°`);
+        rFloor.setState('ok');
+      }
+
+      rPeak.set(this.peakIndex > 0 ? fmt(this.peakIndex, 0) : '—');
+      rPeak.setState(this.peakIndex >= ALERT_SIGMA ? 'warn' : 'idle');
+
+      if (s) {
+        rAcc.set(s.accuracy < 0 ? 'INVALID' : fmt(s.accuracy, 0),
+          s.accuracy < 0 ? 'negative — heading not valid' : usable ? 'good' : `above ${MAX_USABLE_ACCURACY}° limit`);
+        rAcc.setState(s.accuracy < 0 || !usable ? 'bad' : 'ok');
+        const dAcc = this.baseAccuracy === null ? null : s.accuracy - this.baseAccuracy;
+        rAccDelta.set(dAcc === null ? '—' : `${dAcc >= 0 ? '+' : ''}${fmt(dAcc, 1)}`,
+          dAcc === null ? 'no baseline yet' : dAcc >= 10 ? 'signal A agrees' : 'signal A quiet');
+        rAccDelta.setState(dAcc !== null && dAcc >= 10 ? 'warn' : 'idle');
+        rYaw.set(fmt(s.yawRate, 1), Math.abs(s.yawRate) > 5 ? 'moving — floor is raised' : 'still');
+        rYaw.setState(Math.abs(s.yawRate) > 15 ? 'warn' : 'ok');
+      }
+
+      scopeCap.textContent = this.floor === null
+        ? 'LEARNING'
+        : `INDEX · ALERT AT ${ALERT_SIGMA}×`;
+      this.drawScope(scope);
+    });
+  }
+
+  private reset(): void {
+    this.floor = null;
+    this.bias = 0;
+    this.biasPrimed = false;
+    this.corrected = 0;
+    this.learnStart = 0;
+    this.learnSum = 0;
+    this.learnCount = 0;
+    this.index = 0;
+    this.peakIndex = 0;
+    this.baseAccuracy = null;
+    this.trace = [];
+    this.inEvent = null;
+  }
+
+  /** Log-scaled, because the index spans three orders of magnitude. */
+  private drawScope(c: ReturnType<typeof autoCanvas>): void {
+    const { ctx } = c;
+    const w = c.width, h = c.height;
+    if (!w || !h) return;
+    ctx.clearRect(0, 0, w, h);
+
+    if (this.trace.length < 2) {
+      ctx.fillStyle = '#3a3a48';
+      ctx.font = "11px ui-monospace, monospace";
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(this.floor === null ? 'LEARNING NOISE FLOOR' : 'AWAITING DATA', w / 2, h / 2);
+      return;
+    }
+
+    const MAX = 1000;
+    const yOf = (v: number) => {
+      const t = Math.log10(Math.max(v, 0.5) / 0.5) / Math.log10(MAX / 0.5);
+      return h - 14 - t * (h - 22);
+    };
+
+    // Decade gridlines and the alert threshold.
+    ctx.font = "9px ui-monospace, monospace";
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    for (const v of [1, 10, 100, 1000]) {
+      const y = yOf(v);
+      ctx.strokeStyle = '#1a1a24';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(26, y); ctx.lineTo(w, y); ctx.stroke();
+      ctx.fillStyle = '#4a4454';
+      ctx.fillText(`${v}×`, 3, y);
+    }
+    const ay = yOf(ALERT_SIGMA);
+    ctx.strokeStyle = '#ff5555aa';
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(26, ay); ctx.lineTo(w, ay); ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.beginPath();
+    for (let i = 0; i < this.trace.length; i++) {
+      const x = 26 + (i / (TRACE_N - 1)) * (w - 26);
+      const y = yOf(this.trace[i].index);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = '#ffcc66';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Signal A, on its own scale, as a faint overlay.
+    ctx.beginPath();
+    for (let i = 0; i < this.trace.length; i++) {
+      const x = 26 + (i / (TRACE_N - 1)) * (w - 26);
+      const y = h - 14 - (Math.min(this.trace[i].acc, 90) / 90) * (h - 22);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = '#cc99ff66';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffcc66';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillText('▬ index', w - 60, 5);
+    ctx.fillStyle = '#cc99ff99';
+    ctx.fillText('▬ accuracy', w - 4, 5);
+  }
+}

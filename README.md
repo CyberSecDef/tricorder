@@ -16,7 +16,7 @@ Implementation constraints, instrument specs and the open questions live in
 [`TRICORDER_HANDOFF.md`](TRICORDER_HANDOFF.md). Section references throughout
 the source point back at it.
 
-## Status — M1 complete, M2 in progress
+## Status — M1 complete, M2 built
 
 | # | Instrument | State |
 |---|---|---|
@@ -28,7 +28,7 @@ the source point back at it.
 | — | Diagnostics | ✅ built |
 | — | Magnetic residual probe (§11 q.2 harness) | ✅ built — awaiting a magnet sweep |
 | 6 | Floor-plane rangefinder | ✅ built — needs tape-measure verification |
-| 7 | Magnetic anomaly detector | unblocked — §11 q.2 answered, ready to build |
+| 7 | Magnetic anomaly detector | ✅ built — needs on-device verification |
 | 8 | Ultrasonic Doppler | M3 — stub |
 | 9 | ML depth scanner | M4 — stub |
 | 10 | Acoustic sonar | M5 — stub |
@@ -92,6 +92,8 @@ src/
     geo.ts         watchPosition wrapper + fix-quality helpers
     audio.ts       per-profile mic acquisition (NOT a shared stream — see §5)
   instruments/   one screen each; consumes sensors/, owns its own maths
+    residual.ts    gyro/compass residual — shared by Instrument 7 and the probe
+    camera.ts      getUserMedia video + object-fit-aware tap mapping
   lib/           permissions, capabilities, DSP, vectors, wake lock, storage
   ui/            LCARS shell, screen lifecycle, DOM helpers
 ```

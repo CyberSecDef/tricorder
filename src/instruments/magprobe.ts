@@ -21,16 +21,11 @@
 
 import { Instrument } from '../ui/screen';
 import { el, append, readout, autoCanvas, fmt, section, notice, clear } from '../ui/dom';
-import { motion } from '../sensors/motion';
 import { orientation } from '../sensors/orientation';
-import { gravity } from '../sensors/gravity';
-import { dot, angleDelta, type Vec3 } from '../lib/vec';
+import { residual, resetFilters, WINDOW_S, DETREND_TAU } from '../sensors/residual';
+import { angleDelta } from '../lib/vec';
 import * as storage from '../lib/storage';
 
-/** Sliding window over which predicted and actual heading change are compared. */
-const WINDOW_S = 1.5;
-/** Detrend time constant for gyro bias (§8.7 step 6 suggests 20–30 s). */
-const DETREND_TAU = 25;
 /** Rotation below this is not a sweep; the residual would be meaningless. */
 const MIN_SWEEP_DEG = 90;
 /**
@@ -101,30 +96,17 @@ export class MagProbeInstrument extends Instrument {
   override readonly subtitle = '§11 q.2 — is signal B alive?';
   override readonly resources = 'orientation + motion';
 
-  // --- live state -------------------------------------------------------
-  private gDown: Vec3 | null = null;
+  // --- live state, mirrored from the shared residual stream ---------------
   private heading: number | null = null;
-  private prevHeading: number | null = null;
   private accuracy = 0;
-
-  /** Sliding window of per-sample (predicted, actual) heading increments. */
-  private win: Array<{ t: number; pred: number; act: number }> = [];
   private clock = 0;
-
   private residualRaw = 0;
   private residual = 0;
-  private detrend = 0;
-  private detrendPrimed = false;
   private yawRate = 0;
 
-  /**
-   * Sign relating yaw rate about ĝ_down to increasing compass heading. §8.7
-   * says "sign per your empirical convention" — rather than guess, we estimate
-   * it from the data by accumulating the correlation between predicted and
-   * actual heading change, and persist the answer.
-   */
-  private sign: 1 | -1 = storage.load<1 | -1>('magprobe:sign', 1);
-  private signEvidence = storage.load<number>('magprobe:signEvidence', 0);
+  /** Mirrored from the shared stream, which owns the sign estimation. */
+  private sign: 1 | -1 = 1;
+  private signEvidence = 0;
 
   // --- recording --------------------------------------------------------
   private recording: Slot | null = null;
@@ -286,9 +268,7 @@ export class MagProbeInstrument extends Instrument {
       // a real baseline recorded after an 80° excursion reported a noise floor
       // of 13.98° when its actual raw residual never left ±0.07°, an inflation
       // of over 600x. The sliding window is cleared for the same reason.
-      this.detrendPrimed = false;
-      this.detrend = 0;
-      this.win.length = 0;
+      resetFilters();
       btnBase.disabled = btnDist.disabled = true;
       btnStop.disabled = false;
       renderStatus();
@@ -362,16 +342,16 @@ export class MagProbeInstrument extends Instrument {
     renderVerdict();
 
     // --- streams ----------------------------------------------------------
-    this.sub(gravity, (g) => { this.gDown = g.down; });
-
+    // The residual maths lives in sensors/residual.ts, shared with Instrument
+    // 7. Two copies of arithmetic this subtle would drift apart, and the bugs
+    // found here — the yaw projection, the detrend reset — were expensive
+    // enough to be worth having in exactly one place.
     this.sub(orientation, (o) => {
       this.orientEvents++;
       if (o.heading !== null && o.heading !== this.lastHeadingValue) {
         if (this.lastHeadingValue !== null) this.headingChanges++;
         this.lastHeadingValue = o.heading;
       }
-      this.heading = o.heading;
-      if (o.headingAccuracy !== null) this.accuracy = o.headingAccuracy;
     });
 
     let orientTick = performance.now();
@@ -382,66 +362,24 @@ export class MagProbeInstrument extends Instrument {
       orientTick = now;
     });
 
-    // Everything is computed on the motion clock, because that is the stream
-    // that carries a trustworthy dt (§7). Heading contributes zero on samples
-    // where it did not change, which is correct — the window sums the same
-    // total either way.
-    this.sub(motion, (m) => {
-      if (!m.omega || !this.gDown) return;
-      this.clock += m.dt;
-
-      // Project the rotation-rate vector onto the vertical. rotationRate.alpha
-      // alone is only yaw when the phone lies flat on its back (§8.7 step 2).
-      const yaw = dot(m.omega, this.gDown) * this.sign;
-      this.yawRate = yaw;
-
-      let actual = 0;
-      if (this.heading !== null) {
-        if (this.prevHeading !== null) actual = angleDelta(this.heading, this.prevHeading);
-        this.prevHeading = this.heading;
-      }
-
-      const pred = yaw * m.dt;
-      this.win.push({ t: this.clock, pred, act: actual });
-      while (this.win.length && this.clock - this.win[0].t > WINDOW_S) this.win.shift();
-
-      let sumPred = 0, sumAct = 0;
-      for (const w of this.win) { sumPred += w.pred; sumAct += w.act; }
-
-      this.residualRaw = sumAct - sumPred;
-
-      // Gyro bias shows up as a slow constant drift in the residual, so
-      // subtract a long EMA of it. What survives is the anomaly index.
-      const a = 1 - Math.exp(-m.dt / DETREND_TAU);
-      if (!this.detrendPrimed) { this.detrend = this.residualRaw; this.detrendPrimed = true; }
-      else this.detrend += (this.residualRaw - this.detrend) * a;
-      this.residual = this.residualRaw - this.detrend;
-
-      // Sign estimation: if predicted and actual consistently disagree in
-      // direction, our convention is backwards. Accumulate evidence rather
-      // than flipping on a single noisy sample.
-      if (Math.abs(sumPred) > 2) {
-        this.signEvidence += Math.sign(sumPred) === Math.sign(sumAct) ? 1 : -1;
-        this.signEvidence = Math.max(-400, Math.min(400, this.signEvidence));
-        if (this.signEvidence < -60) {
-          this.sign = (this.sign === 1 ? -1 : 1);
-          this.signEvidence = 0;
-          storage.save('magprobe:sign', this.sign);
-          this.win.length = 0;
-          this.detrendPrimed = false;
-        }
-        storage.save('magprobe:signEvidence', this.signEvidence);
-      }
-
-      this.rotated += Math.abs(yaw) * m.dt;
+    this.sub(residual, (r) => {
+      this.clock = r.t;
+      this.residual = r.residual;
+      this.residualRaw = r.residualRaw;
+      this.yawRate = r.yawRate;
+      this.rotated = r.rotated;
+      this.heading = r.heading;
+      this.accuracy = r.accuracy;
+      this.sign = r.sign;
+      this.signEvidence = r.signConfidence * 400;
 
       const s: Sample = {
-        t: this.clock - (this.recording ? this.runStart : 0),
-        residual: this.residual,
-        residualRaw: this.residualRaw,
-        accuracy: this.accuracy,
-        yawRate: yaw,
-        rotated: this.rotated,
+        t: r.t - (this.recording ? this.runStart : 0),
+        residual: r.residual,
+        residualRaw: r.residualRaw,
+        accuracy: r.accuracy,
+        yawRate: r.yawRate,
+        rotated: r.rotated,
       };
 
       this.trace.push(s);
@@ -459,7 +397,7 @@ export class MagProbeInstrument extends Instrument {
 
       rResidual.set(fmt(this.residual, 2));
       rResidual.setState(Math.abs(this.residual) > 4 ? 'bad' : Math.abs(this.residual) > 1.5 ? 'warn' : 'ok');
-      rRaw.set(fmt(this.residualRaw, 2), `bias EMA ${fmt(this.detrend, 2)}°`);
+      rRaw.set(fmt(this.residualRaw, 2), `window ${WINDOW_S} s · detrend τ ${DETREND_TAU} s`);
       rYaw.set(fmt(this.yawRate, 1));
       rAcc.set(this.accuracy < 0 ? 'INVALID' : fmt(this.accuracy, 0),
         this.accuracy < 0 ? `raw ${fmt(this.accuracy, 0)} — uncalibrated` : 'lower is better');
