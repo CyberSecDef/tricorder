@@ -78,6 +78,8 @@ interface Sample {
 
 interface RunStats {
   samples: number;
+  /** Median raw residual the run was detrended against, degrees. */
+  centre: number;
   duration: number;
   rotated: number;
   residualRms: number;
@@ -263,6 +265,14 @@ export class MagProbeInstrument extends Instrument {
       this.buffer = [];
       this.rotated = 0;
       this.runStart = this.clock;
+      // Reset the filters. The detrend EMA has a 25 s time constant, so
+      // without this a run inherits charge from whatever happened before it:
+      // a real baseline recorded after an 80° excursion reported a noise floor
+      // of 13.98° when its actual raw residual never left ±0.07°, an inflation
+      // of over 600x. The sliding window is cleared for the same reason.
+      this.detrendPrimed = false;
+      this.detrend = 0;
+      this.win.length = 0;
       btnBase.disabled = btnDist.disabled = true;
       btnStop.disabled = false;
       renderStatus();
@@ -571,7 +581,8 @@ export class MagProbeInstrument extends Instrument {
     };
     row('duration (s)', f('baseline', (r) => r.duration, 1), f('disturbed', (r) => r.duration, 1));
     row('rotation (°)', f('baseline', (r) => r.rotated, 0), f('disturbed', (r) => r.rotated, 0));
-    row('residual RMS (°)', f('baseline', (r) => r.residualRms), f('disturbed', (r) => r.residualRms));
+    row('residual RMS (°)', f('baseline', (r) => r.residualRms, 3), f('disturbed', (r) => r.residualRms, 3));
+    row('detrend centre (°)', f('baseline', (r) => r.centre, 3), f('disturbed', (r) => r.centre, 3));
     row('residual p95 (°)', f('baseline', (r) => r.residualP95), f('disturbed', (r) => r.residualP95));
     row('residual peak (°)', f('baseline', (r) => r.residualPeak), f('disturbed', (r) => r.residualPeak));
     row('accuracy mean (°)', f('baseline', (r) => r.accuracyMean, 1), f('disturbed', (r) => r.accuracyMean, 1));
@@ -705,12 +716,21 @@ function summarise(d: Sample[]): RunStats {
   const duration = n ? d[n - 1].t - d[0].t : 0;
   const rotated = n ? d[n - 1].rotated - d[0].rotated : 0;
 
+  // Detrend against the run's own MEDIAN raw residual rather than trusting the
+  // live EMA, so the statistics are self-contained and reproducible from the
+  // exported series. The median is the right centre here: a run that is mostly
+  // quiet with one transient keeps the transient, whereas subtracting the mean
+  // would eat part of the very signal we are measuring.
+  const rawSorted = d.map((s) => s.residualRaw).sort((x, y) => x - y);
+  const centre = n ? rawSorted[n >> 1] : 0;
+
   let sumSq = 0, peak = 0;
   let accSum = 0, accMax = -Infinity, accInvalid = 0;
   const abs: number[] = [];
   for (const s of d) {
-    sumSq += s.residual * s.residual;
-    const a = Math.abs(s.residual);
+    const r = s.residualRaw - centre;
+    sumSq += r * r;
+    const a = Math.abs(r);
     abs.push(a);
     if (a > peak) peak = a;
     if (s.accuracy < 0) accInvalid++;
@@ -721,6 +741,7 @@ function summarise(d: Sample[]): RunStats {
 
   return {
     samples: n,
+    centre,
     duration,
     rotated,
     residualRms: n ? Math.sqrt(sumSq / n) : 0,
