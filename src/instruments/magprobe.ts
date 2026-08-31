@@ -33,6 +33,23 @@ const WINDOW_S = 1.5;
 const DETREND_TAU = 25;
 /** Rotation below this is not a sweep; the residual would be meaningless. */
 const MIN_SWEEP_DEG = 90;
+/**
+ * Maximum rotation for a STATIC run to count as static.
+ *
+ * The sweep protocol came from §8.7, which frames signal B as integrating yaw
+ * rate and comparing it against compass heading change. That framing made
+ * rotation feel mandatory. Real data says otherwise, and says it emphatically:
+ * a stationary run produced a quiet-window residual RMS of 0.13° and an
+ * 80° excursion — a ratio of over 600 — with only 3.6° of physical rotation
+ * across the whole run.
+ *
+ * With the phone still, the predicted heading change is ~0, so the residual
+ * reduces to "the heading moved while the device did not". That is the
+ * cleanest possible statement of a magnetic anomaly: no gyro integration, no
+ * accumulated bias, nothing to detrend. The sweep is the harder experiment,
+ * not the better one.
+ */
+const MAX_STATIC_DEG = 20;
 /** A run must be at least this long to be worth comparing. */
 const MIN_RUN_S = 4;
 /**
@@ -74,6 +91,7 @@ interface RunStats {
 interface Run { label: string; stats: RunStats; data: Sample[] }
 
 type Slot = 'baseline' | 'disturbed';
+type Protocol = 'static' | 'sweep';
 
 export class MagProbeInstrument extends Instrument {
   readonly id = 'magprobe';
@@ -112,6 +130,7 @@ export class MagProbeInstrument extends Instrument {
   private runStart = 0;
   private rotated = 0;
   private runs: Partial<Record<Slot, Run>> = {};
+  private protocol: Protocol = storage.load<Protocol>('magprobe:protocol', 'static');
 
   private trace: Sample[] = [];   // rolling live trace, independent of runs
 
@@ -204,6 +223,33 @@ export class MagProbeInstrument extends Instrument {
     const rCalState = readout('Compass calibration', { unit: '°', note: '', wide: true });
     const calGate = el('div');
     append(scroll, section('Compass readiness'), rCalState.node, calGate);
+
+    // Protocol selector. Static is the default because it is both the easier
+    // experiment to perform and the one with the better noise floor.
+    const btnStatic = el('button', { class: 'btn', type: 'button' }, 'Static');
+    const btnSweep = el('button', { class: 'btn', type: 'button' }, 'Sweep');
+    const protoNote = el('div');
+    const renderProtocol = () => {
+      btnStatic.setAttribute('aria-current', String(this.protocol === 'static'));
+      btnSweep.setAttribute('aria-current', String(this.protocol === 'sweep'));
+      btnStatic.className = `btn${this.protocol === 'static' ? '' : ' btn--alt'}`;
+      btnSweep.className = `btn${this.protocol === 'sweep' ? '' : ' btn--alt'}`;
+      clear(protoNote);
+      append(protoNote, notice('warn', this.protocol === 'static'
+        ? `<strong>Static protocol.</strong> Put the phone down and leave it there for both runs — under ${MAX_STATIC_DEG}° of rotation. Baseline with nothing near it; disturbed with the magnet brought up to the top of the phone and taken away again. With no rotation the predicted heading change is zero, so the residual is simply <em>the heading moved while the device did not</em>, which is the cleanest statement of an anomaly there is.`
+        : `<strong>Sweep protocol.</strong> Rotate smoothly through at least ${MIN_SWEEP_DEG}° of yaw in both runs, matching the motion as closely as you can. This is the §8.7 method. It exercises the gyro/compass comparison properly but carries integration error and gyro bias that the static protocol does not.`));
+    };
+    const setProtocol = (p: Protocol) => {
+      this.protocol = p;
+      storage.save('magprobe:protocol', p);
+      this.runs = {};
+      renderProtocol();
+      renderVerdict();
+    };
+    btnStatic.addEventListener('click', () => setProtocol('static'));
+    btnSweep.addEventListener('click', () => setProtocol('sweep'));
+    append(scroll, section('Protocol'), el('div', { class: 'btn-row' }, btnStatic, btnSweep), protoNote);
+    renderProtocol();
 
     const btnBase = el('button', { class: 'btn', type: 'button' }, 'Record baseline');
     const btnDist = el('button', { class: 'btn btn--alt', type: 'button' }, 'Record disturbed');
@@ -435,13 +481,17 @@ export class MagProbeInstrument extends Instrument {
         `auto-estimated · confidence ${Math.min(100, Math.abs(this.signEvidence) / 4).toFixed(0)}%`);
       rSign.setState(Math.abs(this.signEvidence) > 100 ? 'ok' : 'warn');
       const runRot = this.recording ? this.rotated - (this.buffer[0]?.rotated ?? this.rotated) : 0;
+      const staticOk = runRot <= MAX_STATIC_DEG;
+      const sweepOk = runRot >= MIN_SWEEP_DEG;
       rRot.set(this.recording ? fmt(runRot, 0) : '—',
-        this.recording
-          ? runRot >= MIN_SWEEP_DEG
-            ? `${MIN_SWEEP_DEG}° reached — you can stop`
-            : `${fmt(MIN_SWEEP_DEG - runRot, 0)}° still to go, keep turning`
-          : `each run needs ≥ ${MIN_SWEEP_DEG}° of yaw`);
-      rRot.setState(!this.recording ? 'idle' : runRot >= MIN_SWEEP_DEG ? 'ok' : 'warn');
+        !this.recording
+          ? this.protocol === 'static' ? `keep each run under ${MAX_STATIC_DEG}°` : `each run needs ≥ ${MIN_SWEEP_DEG}°`
+          : this.protocol === 'static'
+            ? staticOk ? 'still enough — hold it there' : `TOO MUCH MOVEMENT — over ${MAX_STATIC_DEG}°, put it down`
+            : sweepOk ? `${MIN_SWEEP_DEG}° reached — you can stop` : `${fmt(MIN_SWEEP_DEG - runRot, 0)}° still to go, keep turning`);
+      rRot.setState(!this.recording ? 'idle'
+        : this.protocol === 'static' ? (staticOk ? 'ok' : 'bad')
+        : (sweepOk ? 'ok' : 'warn'));
 
       this.drawTrace(resScope, (s) => s.residual, '#ffcc66', 'symmetric');
       this.drawTrace(accScope, (s) => s.accuracy, '#cc99ff', 'positive');
@@ -552,8 +602,12 @@ export class MagProbeInstrument extends Instrument {
     }
 
     const problems: string[] = [];
-    if (b.rotated < MIN_SWEEP_DEG || d.rotated < MIN_SWEEP_DEG) {
-      problems.push(`One or both runs rotated less than ${MIN_SWEEP_DEG}°. Without rotation there is no predicted heading change, so the residual is meaningless.`);
+    if (this.protocol === 'sweep') {
+      if (b.rotated < MIN_SWEEP_DEG || d.rotated < MIN_SWEEP_DEG) {
+        problems.push(`Sweep protocol: one or both runs rotated less than ${MIN_SWEEP_DEG}° (${b.rotated.toFixed(0)}° and ${d.rotated.toFixed(0)}°). Either turn further, or switch to the static protocol, which does not need rotation at all.`);
+      }
+    } else if (b.rotated > MAX_STATIC_DEG || d.rotated > MAX_STATIC_DEG) {
+      problems.push(`Static protocol: one or both runs moved more than ${MAX_STATIC_DEG}° (${b.rotated.toFixed(0)}° and ${d.rotated.toFixed(0)}°). Rest the phone on a surface so the residual is not contaminated by real rotation.`);
     }
     if (b.duration < MIN_RUN_S || d.duration < MIN_RUN_S) {
       problems.push(`One or both runs are shorter than ${MIN_RUN_S} s.`);
@@ -567,9 +621,11 @@ export class MagProbeInstrument extends Instrument {
       problems.push(
         `Compass accuracy differed by ${Math.abs(b.accuracyMean - d.accuracyMean).toFixed(0)}° between the runs, which means iOS was still recalibrating the magnetometer partway through. The two runs were not measured under the same conditions.`);
     }
-    const rotRatio = Math.max(b.rotated, d.rotated) / Math.max(1, Math.min(b.rotated, d.rotated));
-    if (rotRatio > 2) {
-      problems.push(`The two runs differ in total rotation by ${rotRatio.toFixed(1)}×. Compare like with like — repeat the same sweep.`);
+    if (this.protocol === 'sweep') {
+      const rotRatio = Math.max(b.rotated, d.rotated) / Math.max(1, Math.min(b.rotated, d.rotated));
+      if (rotRatio > 2) {
+        problems.push(`The two runs differ in total rotation by ${rotRatio.toFixed(1)}×. Compare like with like — repeat the same sweep.`);
+      }
     }
     if (problems.length) {
       return notice('bad', `<strong>Runs not comparable.</strong><ul>${problems.map((p) => `<li>${p}</li>`).join('')}</ul>`);
@@ -595,7 +651,11 @@ export class MagProbeInstrument extends Instrument {
 
     if (bAlive) {
       return notice('ok',
-        `<strong>Signal B survives.</strong> Core Motion's fusion is not damping the residual out of existence, so Instrument 7 can be built on it, with signal A as corroboration.<ul>${lines}</ul>`);
+        '<strong>Signal B survives.</strong> Core Motion\'s fusion is not damping the residual out of existence, so Instrument 7 can be built on it. ' +
+        (aAlive
+          ? 'Signal A responded too and can corroborate.'
+          : '<strong>Signal A did not respond</strong>, though — <code>webkitCompassAccuracy</code> stayed flat through a disturbance the residual saw clearly. That inverts the handoff\'s assumption that A was the safe fallback: here B is the only live signal, and the instrument must be built on it alone.') +
+        `<ul>${lines}</ul>`);
     }
     if (bMarginal) {
       return notice('warn',
