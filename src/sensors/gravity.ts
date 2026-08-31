@@ -8,9 +8,16 @@
  * result is persisted, and until they do we run on a documented assumption
  * that is clearly flagged as unverified in the UI.
  *
- * OBSERVED (fill in from your device via the diagnostics screen):
- *   iPhone, iOS __, flat on a table screen-up, accelerationIncludingGravity
- *   read approximately (__, __, __).
+ * OBSERVED — §11 q.1 is answered, on iPhone / iOS 26.6.1:
+ *   Flat on a table, screen up, accelerationIncludingGravity read
+ *   (-0.03, 0.21, -9.80). z is NEGATIVE, so this engine reports the iOS
+ *   convention, not the W3C one, and SIGN = +1. The 0.21 on y is the table,
+ *   not the phone.
+ *
+ * That confirms the default below rather than overturning it — but it was
+ * worth measuring, because the two conventions differ only in sign and a
+ * wrong guess would have silently inverted pitch, roll, and every ray
+ * derivation in the floor-plane rangefinder.
  *
  * Reasoning: with the phone flat and screen up, "down" in device coordinates
  * is (0, 0, -1), because +Z points out of the screen at the ceiling.

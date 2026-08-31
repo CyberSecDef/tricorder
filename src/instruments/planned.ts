@@ -53,7 +53,7 @@ export const PLANNED: Plan[] = [
     principle:
       'The raw magnetometer is unreachable in every iOS browser, so we infer disturbance instead. Signal A: plot webkitCompassAccuracy over time — it degrades near ferrous mass. Signal B: the gyroscope is magnetically immune and the compass is not, so integrate yaw rate about true vertical and compare it against the actual compass heading change. The residual is the anomaly.',
     blockers: [
-      'OPEN QUESTION (§11 q.2): iOS Core Motion already fuses these signals and may partially reject magnetic outliers, damping signal B. This must be MEASURED before any UI is built on it — sweep the phone past a speaker magnet and log the raw residual. If B is too smoothed, fall back to signal A alone.',
+      'OPEN QUESTION (§11 q.2): iOS Core Motion already fuses these signals and may partially reject magnetic outliers, damping signal B. The harness that answers this is built — see the PROBE screen immediately above. Record a clean sweep and a disturbed one; it reports whether B separates from its own noise floor. Do not build this instrument until it has.',
       'Yaw rate must be projected onto the gravity vector, not read from rotationRate.alpha — alpha is only yaw when the phone lies flat on its back.',
       'Heading difference must be unwrapped across the 0/360 seam, and gyro bias detrended with a 20–30 s EMA.',
     ],

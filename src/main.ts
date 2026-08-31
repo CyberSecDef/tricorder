@@ -7,6 +7,7 @@ import { CompassInstrument } from './instruments/compass';
 import { SeismographInstrument } from './instruments/seismograph';
 import { SpectrumInstrument } from './instruments/spectrum';
 import { DiagnosticsInstrument } from './instruments/diagnostics';
+import { MagProbeInstrument } from './instruments/magprobe';
 import { PLANNED, PlannedInstrument } from './instruments/planned';
 
 const NAV: NavEntry[] = [
@@ -14,12 +15,19 @@ const NAV: NavEntry[] = [
   { id: 'compass',  short: 'Compass',  milestone: 'M1', create: () => new CompassInstrument() },
   { id: 'seismo',   short: 'Seismo',   milestone: 'M1', create: () => new SeismographInstrument() },
   { id: 'spectrum', short: 'Spectrum', milestone: 'M1', create: () => new SpectrumInstrument() },
-  ...PLANNED.map((p) => ({
-    id: p.id,
-    short: p.short,
-    milestone: p.milestone,
-    create: () => new PlannedInstrument(p),
-  })),
+  ...PLANNED.flatMap((p) => [
+    // The residual probe sits immediately before the instrument it gates, so
+    // the dependency is visible in the rail rather than only in the docs.
+    ...(p.id === 'magnetic'
+      ? [{ id: 'magprobe', short: 'Probe', milestone: 'q.2', create: () => new MagProbeInstrument() }]
+      : []),
+    {
+      id: p.id,
+      short: p.short,
+      milestone: p.milestone,
+      create: () => new PlannedInstrument(p),
+    },
+  ]),
   { id: 'diag',     short: 'Diag',     milestone: 'M1', create: () => new DiagnosticsInstrument() },
 ];
 
