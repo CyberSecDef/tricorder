@@ -16,7 +16,7 @@ Implementation constraints, instrument specs and the open questions live in
 [`TRICORDER_HANDOFF.md`](TRICORDER_HANDOFF.md). Section references throughout
 the source point back at it.
 
-## Status — M1 complete
+## Status — M1 complete, M2 in progress
 
 | # | Instrument | State |
 |---|---|---|
@@ -26,7 +26,8 @@ the source point back at it.
 | 4 | Seismograph / vibration | ✅ built |
 | 5 | Audio spectrum analyzer | ✅ built |
 | — | Diagnostics | ✅ built |
-| 6 | Floor-plane rangefinder | M2 — stub with spec + blockers |
+| — | Magnetic residual probe (§11 q.2 harness) | ✅ built — awaiting a magnet sweep |
+| 6 | Floor-plane rangefinder | ✅ built — needs tape-measure verification |
 | 7 | Magnetic anomaly detector | M2 — stub |
 | 8 | Ultrasonic Doppler | M3 — stub |
 | 9 | ML depth scanner | M4 — stub |
@@ -127,9 +128,10 @@ WKWebView-versus-Safari question is not a version question:
    the handoff, and the gate on M2. **Still open — measure before building.**
 3. **Audio sample rate** — Diagnostics → Runtime. Expect 48 kHz on iOS 26,
    giving a 22 kHz ultrasonic ceiling. Confirm rather than assume.
-6. **WebGPU exposure** — Safari 26 has it on by default. Whether WKWebView
-   exposes it to Chrome and Edge at the same OS version is **still open** and
-   decides Instrument 9's backend.
+6. **WebGPU exposure** — **answered.** Present in Chrome on iOS 26, so
+   WKWebView does expose it and this is not a Safari-only capability.
+   Instrument 9 can commit to the WebGPU path; the WASM fallback stays as a
+   safety net rather than an expected route. Confirm in Edge when convenient.
 7. **Wake Lock** — guaranteed by the floor; the Diagnostics row confirms it is
    actually held, which is a different claim.
 8. **Motion-prompt behaviour and denial recovery** — exercise the boot gate in
@@ -140,11 +142,14 @@ WKWebView-versus-Safari question is not a version question:
 | Check | Result |
 |---|---|
 | §11 q.1 gravity sign | **Answered.** Flat screen-up reads (-0.03, 0.21, -9.80) → iOS convention, SIGN = +1 |
-| Compass accuracy | Pass |
+| Compass heading | Pass — within 2° of a known-good compass |
+| Bubble level | Pass — within 2° of a real spirit level. Validates the pitch/roll axis mapping the rangefinder depends on |
 | Seismograph | Pass |
 | Geo | Pass |
-| Spectrum | **Failed** — dangling AnalyserNode was never fed by WebKit. Fixed; re-verify |
-| WebGPU | Present (confirm per browser for §11 q.6) |
+| Spectrum | Pass, after fixing a dangling AnalyserNode WebKit never fed |
+| §11 q.6 WebGPU | **Answered.** Present in **Chrome** on iOS 26 — WKWebView exposes it, not Safari only |
+
+Tested in Chrome. Safari and Edge still outstanding for the §10 M1 gate.
 
 Acceptance tests per §8, in build order:
 

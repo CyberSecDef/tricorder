@@ -17,11 +17,13 @@
 export const TARGET = {
   os: 'iOS 26+',
   /** Verified against this device. Update as the test matrix grows. */
-  testedOn: 'iPhone, iOS 26.6.1',
+  testedOn: 'iPhone, iOS 26.6.1, Chrome',
   /** Capabilities the target floor guarantees, at least in Safari. */
   expected: {
     wakeLock: true,   // 16.4+
-    webgpu: true,     // Safari 26+, on by default
+    // Safari 26+ has it on by default, and §11 q.6 is now answered: it is
+    // also present in Chrome on iOS 26, so WKWebView exposes it too.
+    webgpu: true,
     audioWorklet: true, // 14.5+
     mediaDevices: true, // WKWebView 14.3+
   },

@@ -542,3 +542,50 @@ body {
   aspect-ratio: 1 / 1;
   margin: 0 auto;
 }
+
+/* ---------- Rangefinder --------------------------------------------------
+   The camera view is a fixed-height stage above the scrolling readouts, so a
+   tap always lands on a viewport-stable target — a video inside the scroller
+   would move under the finger between aim and tap. */
+.rf {
+  position: relative;
+  flex: 0 0 auto;
+  height: min(46dvh, 380px);
+  background: #000;
+  overflow: hidden;
+  touch-action: manipulation;
+  cursor: crosshair;
+}
+.rf__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;   /* tapToFrameCoords() must be told the same value */
+  background: #000;
+}
+.rf__overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.rf__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rf__label {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lc-violet);
+}
+.rf__input {
+  font-family: var(--font-data);
+  font-size: 16px;   /* < 16px makes iOS zoom the viewport on focus */
+  background: #14141c;
+  color: var(--lc-gold);
+  border: 0;
+  border-left: 4px solid var(--lc-bell);
+  border-radius: 2px;
+  padding: 7px 9px;
+  width: 108px;
+}

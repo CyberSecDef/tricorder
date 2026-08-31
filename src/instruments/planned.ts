@@ -89,7 +89,7 @@ export const PLANNED: Plan[] = [
     principle:
       'Depth-Anything-V2-small through Transformers.js, downscaled to 256–384 px, inference decoupled from the render loop, false-coloured with a perceptually uniform ramp.',
     blockers: [
-      'OPEN QUESTION (§11 q.6): whether WKWebView exposes WebGPU to Chrome and Edge on the target iOS version, or only to Safari. Check the Diagnostics WebGPU row on each browser before committing.',
+      'RESOLVED (§11 q.6): WebGPU is present in Chrome on iOS 26.6.1, so WKWebView exposes it and this is not Safari-only. Commit to the WebGPU path; keep the WASM fallback as a safety net rather than an expected route.',
       'Model download is 25–50 MB and the cache is per-browser, so trying the app in both Safari and Chrome downloads it twice. Needs a first-run progress bar.',
       'Per-frame min/max normalisation causes severe flicker — the normalisation bounds need an EMA across frames.',
     ],
