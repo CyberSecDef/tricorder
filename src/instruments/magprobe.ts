@@ -153,6 +153,12 @@ export class MagProbeInstrument extends Instrument {
         '<strong>Do this first, and do not rotate the phone.</strong> Lay it flat, press <em>Mark reference</em>, then bring the magnet slowly up to it. ' +
         'The magnetometer sits near the <strong>top of the phone</strong>, so approach that end, and get within a few centimetres — a fridge magnet at arm\'s length proves nothing. ' +
         'If the heading does not move and the accuracy does not degrade, the compass itself never saw the field, and no amount of residual maths will recover a signal that was never there.'),
+      notice('ok',
+        '<strong>Verify the readout first.</strong> Mark a reference, then physically turn the phone through about 90°. Peak deviation must jump to roughly 90. ' +
+        'If it does, this display works and a null result from the magnet is a real measurement. If it stays at zero, the fault is here and not in the physics. Re-mark before the magnet test.'),
+      notice('warn',
+        '<strong>Not all magnets are usable.</strong> Flexible fridge-door magnets are deliberately multipole — alternating stripes a few millimetres apart — so their field collapses almost immediately and they will not reach the magnetometer. ' +
+        'Use a speaker driver (headphones, a Bluetooth speaker), a MagSafe puck or magnetic mount, a laptop lid hinge, or a neodymium magnet. A steel mass such as a cast-iron pan or a large screwdriver also works, by distorting the field rather than adding to it.'),
       el('div', { class: 'grid' }, rHeadingRaw.node, rDeviation.node, rPeakDev.node),
       el('div', { class: 'btn-row' }, btnMark));
 
