@@ -1,25 +1,37 @@
 # Web Tricorder — Implementation Handoff
 
-**Target:** A browser-based "tricorder" sensor suite that runs on **iOS**, in **Safari, Chrome and Edge**.
-**Status:** Greenfield. Nothing built yet.
+**Target:** A browser-based "tricorder" sensor suite that runs on **iOS 26+**, in **Safari, Chrome and Edge**.
+**Status:** M1 and M2 built. Instruments 1–7 plus a diagnostics screen and a measurement probe. Instruments 8–10 remain.
 **Prime constraint:** iOS only. Do not assume any Android/desktop-Chrome-only API.
+**Reference device:** iPhone, iOS 26.6.1, tested in Chrome. Safari and Edge not yet exercised.
+
+> **This document has been updated from measurements.** It began as a set of
+> predictions written before anything was built. Where a prediction has since
+> been tested on hardware, the result is recorded inline and marked
+> **MEASURED**. Where a prediction turned out to be wrong or incomplete, the
+> correction is marked **CORRECTION** and the original reasoning is kept, so a
+> future reader can see why the wrong turn was tempting. Everything not so
+> marked is still a prediction and should be treated as one.
 
 ---
 
-## 0. Read this first — the six things that will waste your time
+## 0. Read this first — the seven things that will waste your time
 
 1. **On iOS, Chrome and Edge *are* Safari.** App Store rules require every iOS browser to render with WKWebView — Apple's WebKit. Chrome for iOS is not Blink; Edge for iOS is not Blink. Supporting all three does **not** widen the API surface by one function. It changes permissions, installability, and a few newer features. See §1.
 2. **iOS has no WebXR, no Web Bluetooth, no Web NFC, no WebUSB, no Web Serial, no Battery Status API, and no Generic Sensor API** (`Accelerometer`, `Magnetometer`, `AmbientLightSensor`, `Gyroscope` classes all absent) — *in every browser on the platform.* Everything here uses `DeviceMotionEvent`, `DeviceOrientationEvent`, `getUserMedia`, Web Audio, and Geolocation. If you find yourself reaching for `new Magnetometer()`, stop.
-3. **The raw magnetometer is not accessible.** Not behind a flag, not in any iOS browser. We detect *anomalies* via a gyro/compass residual instead (Instrument 7). Do not promise µT readings anywhere in the UI.
+3. **The raw magnetometer is not accessible.** Not behind a flag, not in any iOS browser. We detect *anomalies* via a gyro/compass residual instead (Instrument 7). Do not promise µT readings anywhere in the UI. **MEASURED:** the residual works far better than this document originally dared hope — 691× its own noise floor. See §8.7.
 4. **iPhone LiDAR is not accessible from the web.** ARKit only. Depth comes from an ML model (Instrument 9).
 5. **Motion sensors require an explicit permission call inside a real user gesture**, and the page must be served over **HTTPS** (a phone cannot use `localhost`). See §3 and §4.
 6. **Audio DSP defaults will destroy the sonar and Doppler instruments** — but only those. Because this app is a set of screens, mic constraints are a *per-instrument* concern, not a global one. See §5.
+7. **MEASURED — WebKit only pulls an audio graph that reaches the destination.** An `AnalyserNode` connected to nothing downstream is never fed. `getFloatFrequencyData` returns a flat `-Infinity` forever, with no error and no warning. Chromium processes such a node regardless, so this reproduces *only* on the target platform and never in desktop testing. It cost a full debugging cycle on Instrument 5. Terminate every analysis chain at `destination` through a zero-gain node. See §5.
 
 ---
 
 ## 1. Browser support on iOS
 
 All three targets share one engine, so treat "does this work?" as a question about the **iOS version**, not the browser name. A device on iOS 18 running Chrome has the same WebKit as that device's Safari.
+
+**Target floor is now iOS 26+.** That clears every version gate this document originally hedged against: Wake Lock (16.4+), WebGPU (Safari 26+), AudioWorklet (14.5+), `getUserMedia` in WKWebView (14.3+). It does **not** remove the need to feature-detect. The reason to detect was never the OS version — it is that Chrome and Edge on iOS are WKWebView, and what an embedded web view exposes is not guaranteed to match what Safari exposes at the same version. A capability missing at iOS 26 is a finding worth recording, not a shrug.
 
 > **EU footnote:** iOS 17.4+ permits alternative browser engines in the EU via BrowserEngineKit. In practice neither Chrome nor Edge ships a non-WebKit iOS build. If that changes, this document's constraints get *looser*, never tighter — nothing here breaks.
 
@@ -34,8 +46,8 @@ All three targets share one engine, so treat "does this work?" as a question abo
 | **Add to Home Screen** (standalone PWA) | Yes | **No** — cannot install a standalone web app | The manifest and standalone permission context only matter for Safari. Chrome/Edge users run it as a tab. |
 | Permission prompt UX | Native Safari sheet | WKWebView sheet, hosted by the app | Same API, different wording. Do not scrape prompt text. |
 | Settings toggle for motion | Settings → Safari → Motion & Orientation Access | Same WebKit setting, but users will not think to look under "Safari" | Troubleshooting copy must say this explicitly. |
-| Wake Lock | 16.4+ | Follows the same WebKit version — **verify on device** | Degrade silently if absent. |
-| WebGPU (Instrument 9) | 26+, on by default | May lag or be disabled in WKWebView — **verify on device** | Fall back to the WASM backend. |
+| Wake Lock | 16.4+, so present at the iOS 26 floor | Follows the same WebKit version — **still unconfirmed in Edge** | Degrade silently if absent. |
+| WebGPU (Instrument 9) | 26+, on by default | **MEASURED: present in Chrome on iOS 26.6.1.** WKWebView does expose it | Commit to the WebGPU path; keep the WASM fallback as a safety net rather than an expected route. Edge still unconfirmed. |
 | URL bar / viewport chrome | Safari's | Differs, and resizes on scroll | Use `dvh` units and re-measure on `resize`; do not hardcode viewport height. |
 
 **Practical rule:** build and test against Safari first because it is the strictest for installability, then verify the two open rows above on Chrome and Edge before shipping. Do not maintain browser-specific code paths — feature-detect.
@@ -58,28 +70,36 @@ const caps = {
 
 Show the resulting capability list on a diagnostics screen. When an instrument is unavailable, say *why* — "WebGPU unavailable, falling back to WASM (slower)" beats a greyed-out panel.
 
+**As built:** `src/lib/capabilities.ts` probes all of the above, `src/lib/platform.ts` records what the iOS 26 floor guarantees, and the diagnostics screen compares the two — a capability that *should* be present but is not gets reported as a finding rather than rendered as a neutral "no".
+
 ---
 
 ## 2. Scope
 
 Build a single-page PWA presenting a set of "instruments," each a self-contained **screen**. Aesthetic is up to you (LCARS-ish is the obvious call), but **signal correctness matters more than chrome** — every readout must come from a real measurement, and anything derived/uncalibrated must be labeled as such in the UI.
 
+**As built:** full LCARS — swept elbows, the canonical TNG palette, Antonio for display type with a condensed-sans fallback stack.
+
 ### Instruments, in recommended build order
 
-| # | Instrument | Difficulty | Depends on |
-|---|---|---|---|
-| 1 | Permission/boot gate | — | — |
-| 2 | Geo & navigation (GPS) | Easy | Geolocation |
-| 3 | Compass / attitude | Easy | DeviceOrientation |
-| 4 | Seismograph / vibration | Easy | DeviceMotion |
-| 5 | Audio spectrum analyzer | Easy | Web Audio |
-| 6 | Floor-plane rangefinder | Medium | Camera + DeviceMotion |
-| 7 | Magnetic anomaly detector | Medium | DeviceOrientation + DeviceMotion |
-| 8 | Ultrasonic Doppler motion | Medium | Web Audio |
-| 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU |
-| 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) |
+| # | Instrument | Difficulty | Depends on | Status |
+|---|---|---|---|---|
+| 1 | Permission/boot gate | — | — | ✅ built, works on device |
+| 2 | Geo & navigation (GPS) | Easy | Geolocation | ✅ built, passes on device |
+| 3 | Compass / attitude | Easy | DeviceOrientation | ✅ built, within 2° of a known-good compass; bubble within 2° of a spirit level |
+| 4 | Seismograph / vibration | Easy | DeviceMotion | ✅ built, passes on device |
+| 5 | Audio spectrum analyzer | Easy | Web Audio | ✅ built; needed the §0.7 fix before it produced anything |
+| 6 | Floor-plane rangefinder | Medium | Camera + DeviceMotion | ✅ built, **accurate to inches** after two-point calibration |
+| 7 | Magnetic anomaly detector | Medium | DeviceOrientation + DeviceMotion | ✅ built; not yet exercised on hardware |
+| 8 | Ultrasonic Doppler motion | Medium | Web Audio | not started |
+| 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU | not started; WebGPU path confirmed available |
+| 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | not started |
+| — | Diagnostics | — | — | ✅ built (§9) |
+| — | Magnetic residual probe | — | DeviceOrientation + DeviceMotion | ✅ built — the harness that answered §11 q.2 |
 
 Ship 1–5 as a working v1 before touching 6+.
+
+**Retained, and it was the right call.** Building strictly in this order meant every hard instrument arrived on a foundation that had already been checked on hardware. Instrument 6 could not have been trusted before the gravity sign convention was measured (§11 q.1) and the bubble level had been checked against a real spirit level — both of which came free from finishing 3 first.
 
 ### Explicit non-goals
 - Absolute SPL in dB — we cannot calibrate a phone mic without a reference. Show dBFS or a relative scale.
@@ -93,28 +113,61 @@ Ship 1–5 as a working v1 before touching 6+.
 
 **Recommended:** Vite + TypeScript, vanilla DOM or a thin framework. Keep dependencies minimal — every extra MB hurts on a phone over a tunnel.
 
+**As built:** Vite + TypeScript, vanilla DOM, no framework. The instruments are
+canvas-heavy with per-frame numeric readouts, which is exactly the case where a
+VDOM buys nothing against a 60 Hz sensor stream. Runtime dependencies: none.
+Bundle is ~36 kB gzipped with seven instruments in it. `devDependencies` are
+Vite, TypeScript and `@types/node`.
+
 ```
 src/
   sensors/           # raw sensor streams, one module each; no UI
-    motion.ts        # devicemotion -> {accel, accelG, rotationRate, interval}
+    stream.ts        # SensorStream: refcounted multi-consumer source
+    motion.ts        # devicemotion -> {accel, accelG, omega, dt}
     orientation.ts   # deviceorientation -> {alpha,beta,gamma,heading,headingAccuracy}
-    geo.ts           # watchPosition wrapper
-    audio.ts         # AudioContext + mic acquisition (per-profile) + AnalyserNode
-    camera.ts        # getUserMedia video + frame grabber
+    gravity.ts       # low-passed gravity-down unit vector, pitch, roll (§7)
+    residual.ts      # gyro/compass residual — shared by Instrument 7 and the probe
+    geo.ts           # watchPosition wrapper + fix-quality helpers
+    audio.ts         # per-profile mic acquisition (§5). NOT a shared stream.
+    camera.ts        # getUserMedia video + object-fit-aware tap mapping
   instruments/       # one screen per module; consumes sensors/, owns its own math
   lib/
     permissions.ts   # the single-gesture unlock (see §4)
     capabilities.ts  # feature detection (see §1)
-    dsp.ts           # FFT helpers, correlation, filters
-    vec.ts           # small 3-vector helpers
+    platform.ts      # what the iOS 26 floor guarantees, for comparison
+    dsp.ts           # FFT, Hann, high-pass, ring buffer, haversine
+    rangefinder.ts   # floor-plane geometry + calibration solvers (§8.6)
+    vec.ts           # 3-vector helpers, circular EMA, angle unwrapping
+    wakelock.ts      # with re-acquire on visibilitychange
+    storage.ts       # namespaced localStorage that survives private mode
   ui/
+    screen.ts        # Instrument base class — the lifecycle (below)
+    app.ts           # shell + router; serialises screen switches
+    dom.ts, lcars.css
 ```
+
+**Two modules earned their place the hard way.** `sensors/residual.ts` exists
+because the gyro/compass residual is used by both Instrument 7 and the probe
+that validated it, and the subtleties in it — projecting yaw onto gravity
+rather than reading `alpha`, resetting the detrend filter between sessions —
+were expensive enough to be worth having in exactly one place. `lib/
+rangefinder.ts` is separated from its instrument purely so the geometry can be
+tested against closed-form cases; there are 16 such tests and they caught two
+real errors.
 
 ### Screens own their resources
 
 Because each instrument is a separate screen, the lifecycle is: **activate → acquire → run → release**. Motion and orientation are cheap, always-on, shared streams. Camera and mic are **acquired by the active screen and released on exit.**
 
 Each sensor module exposes subscribe/unsubscribe and is safe for multiple consumers — several instruments read `devicemotion` simultaneously and you only want one listener. But the mic is different: see §5, different instruments need *incompatible* mic constraints, so `audio.ts` must acquire per-profile rather than hand out one shared stream.
+
+**As built,** this is enforced rather than trusted. The `Instrument` base class
+in `ui/screen.ts` registers every subscription, listener, interval and
+animation frame, and tears them all down in reverse order on unmount. No
+instrument is asked to remember its own cleanup, because the one that forgets
+leaves the privacy indicator lit. `app.ts` also serialises screen switches
+through a promise chain — `build()` is async for any screen that awaits
+`getUserMedia`, so two fast taps could otherwise mount two screens at once.
 
 ---
 
@@ -158,6 +211,11 @@ async function unlock() {
 - The **Settings → Safari → Motion & Orientation Access** toggle governs WebKit generally. A Chrome user with it off will see motion fail with no obvious cause, and will never think to look under "Safari." Call this out by name in the error state.
 - **Standalone PWAs are a separate permission origin context, and only Safari can create one.** Motion permission granted in the Safari tab does not carry over to the home-screen app. Test both. Chrome/Edge users only ever have the tab context.
 
+**MEASURED:** the boot gate worked first time on iOS 26.6.1 in Chrome, with no
+surprises. This section's advice held up exactly as written. Denial recovery
+(§11 q.8) has still never been exercised, because nothing has been denied yet —
+which is worth deliberately testing rather than waiting for a user to hit it.
+
 ---
 
 ## 5. Audio constraints are per-instrument
@@ -187,6 +245,43 @@ export async function acquireMic(profile = 'raw') {
 
 **Do not hold one global mic stream for the whole app.** Two screens needing different profiles cannot share a stream, and a leaked stream keeps the orange privacy indicator lit — which users read as the app spying on them.
 
+### MEASURED — terminate the analysis graph at the destination
+
+This is the single most expensive thing discovered while building M1, and it is
+not in any of the obvious places to look.
+
+**WebKit only pulls an audio graph that reaches `ctx.destination`.** An
+`AnalyserNode` hanging off a `MediaStreamAudioSourceNode` with nothing
+connected downstream is never fed. `getFloatFrequencyData` fills the array with
+`-Infinity`, forever, and no error is raised anywhere. The spectrum analyzer
+rendered a perfectly composed, permanently empty display.
+
+It reproduces **only on the target platform**. Chromium processes a dangling
+analyser regardless, so the headless test suite passed throughout and the bug
+appeared for the first time on a phone.
+
+The instinct that causes it is sound: connecting the microphone to the speakers
+creates feedback, so you deliberately do not connect it. The fix keeps that
+property while making the graph live:
+
+```js
+const mute = ctx.createGain();
+mute.gain.value = 0;          // emits nothing, so no speaker-to-mic path
+analyser.connect(mute);
+mute.connect(ctx.destination); // but the graph now terminates, so it is pulled
+```
+
+Instruments 8 and 10 both analyse microphone input and will hit this the moment
+they are built. Do it in the acquisition path once.
+
+**Also worth building:** distinguishing "the room is silent" from "the pipeline
+is dead" needs two independent pieces of evidence, because either alone gives
+false positives. Time-domain RMS of exactly zero can also come from a muted or
+synthetic source; every frequency bin at `-Infinity` is the signature of an
+analyser that is never fed. Requiring both is what separates the two cases, and
+without that distinction a user staring at a flat display has no idea whether
+to check their permissions or turn up the volume.
+
 ---
 
 ## 6. Serving it (you cannot skip this)
@@ -197,6 +292,42 @@ Pick one:
 - **Best for iteration:** `vite --host` + a tunnel that terminates TLS — `cloudflared tunnel --url http://localhost:5173`, `ngrok http 5173`, or Tailscale Funnel.
 - **Best for real use:** static deploy to Cloudflare Pages / Netlify / Vercel / GitHub Pages.
 - **mkcert** with the CA installed and trusted on the iPhone works but is fiddly, and each browser trusts the profile differently. Only bother if offline.
+
+### CORRECTION — the local CA route is the good one, not the fallback
+
+This document listed a local CA third and called it fiddly. In practice it was
+the fastest to set up and has been completely reliable, and it is what this
+project uses. No tunnel, no third party, no rotating URL, and it works with the
+laptop offline.
+
+`scripts/make-certs.sh` builds it with plain `openssl` — `mkcert` is not needed
+and is one less thing to install. It issues a private CA plus a leaf covering
+`<hostname>.local`, every global IPv4 the machine currently holds, and
+`localhost`, so the phone can reach the dev server over whichever network the
+two happen to share. `npm run serve-ca` then serves *only* the public CA
+certificate over plain HTTP, which is necessary rather than sloppy: the phone
+cannot trust the HTTPS origin until it has installed that certificate, so
+bootstrapping over TLS is circular.
+
+Two things make this work smoothly, and both are easy to miss:
+
+- **Bonjour removes the DHCP problem.** If the dev machine runs avahi, the
+  phone resolves `<hostname>.local` natively. The address survives lease
+  changes, so the certificate does not need reissuing every time the router
+  has an opinion.
+- **Installing the profile is not enough.** iOS needs *two* steps, and the
+  second is the one everyone forgets: Settings → General → VPN & Device
+  Management → install the profile, and then Settings → General → About →
+  **Certificate Trust Settings** → enable full trust for the CA. Without the
+  second, Safari still rejects the certificate and you will be convinced the
+  certificate is wrong. WKWebView uses the same system trust store, so one
+  install covers Safari, Chrome and Edge.
+
+Re-running the script reuses an existing CA, so a changed LAN IP means
+re-issuing the leaf but *not* re-installing anything on the phone.
+
+Keep the private key out of git. `.gitignore` should carry `certs/*` with an
+exception for the README, not a blanket `certs/`.
 
 ### PWA manifest
 Include `manifest.webmanifest` with `display: "standalone"`, an `apple-touch-icon`, and `<meta name="apple-mobile-web-app-capable" content="yes">`. **This only takes effect in Safari** — Chrome and Edge on iOS cannot install a standalone web app. Design the in-page chrome so the app is fully usable in a browser tab with a URL bar consuming vertical space, and use `dvh` rather than `vh` so the collapsing URL bar does not clip your instrument panels.
@@ -224,9 +355,23 @@ window.addEventListener('devicemotion', e => {
   e.interval;                     // ms between samples
 });
 ```
-- Rate is typically ~60 Hz on iOS, sometimes lower. **Always use `e.interval` for integration**, never a hardcoded dt.
-- `acceleration` (gravity-removed) is genuinely available on iOS — use it directly for the seismograph.
+- Rate is typically ~60 Hz on iOS, sometimes lower. **Always use `e.interval` for integration**, never a hardcoded dt. **MEASURED:** ~60 Hz on the reference device, with enough jitter to be worth clamping — an absent or stale `interval` silently corrupts every integration downstream, so sanity-check it against wall-clock before using it.
+- `acceleration` (gravity-removed) is genuinely available on iOS — use it directly for the seismograph. **MEASURED:** confirmed, and the seismograph reads near zero at rest as predicted.
 - ⚠️ **Sign conventions for `accelerationIncludingGravity` differ between iOS and the W3C spec / Android.** Do not trust a remembered polarity. Write a one-time calibration test: lay the phone flat, screen up, and log the vector. Derive your sign constant from that, and put a comment recording what you observed.
+
+  **MEASURED (§11 q.1 — answered).** iPhone / iOS 26.6.1, flat on a table screen
+  up: `accelerationIncludingGravity` reads **(−0.03, 0.21, −9.80)**. `z` is
+  negative, so this engine reports the **iOS convention**, and with device `+Z`
+  pointing out of the screen the gravity-down unit vector is
+  `+normalize(accelG)` — sign constant **+1**.
+
+  This confirmed the default rather than overturning it, which is exactly why
+  it was worth measuring: the two conventions differ only in sign, so a wrong
+  guess produces no error, no warning and no obviously silly number. It
+  silently inverts pitch, roll, and every ray derivation in Instrument 6. The
+  app resolves it at runtime through a calibration on the diagnostics screen,
+  persists the result, and flags every gravity-derived readout as unverified
+  until it has been run.
 
 ### `deviceorientation`
 ```js
@@ -239,6 +384,24 @@ window.addEventListener('deviceorientation', e => {
 - `webkitCompassHeading` is a WebKit feature, so it is present in all three iOS browsers — and absent everywhere else. Feature-detect it rather than assuming.
 - `webkitCompassAccuracy` is the key extra signal for Instrument 7. Large or negative = magnetic interference or needs calibration.
 - `deviceorientationabsolute` does **not** fire on iOS. Use `deviceorientation` + `webkitCompassHeading`.
+- **MEASURED — `webkitCompassAccuracy` is a gate, not just a signal.** On the
+  reference device it ranges from a floor of 10° to 89°. At 89° the compass is
+  effectively uncalibrated and **the heading wanders 60° entirely on its own**,
+  with the phone motionless on a table. Any instrument built on heading must
+  refuse to report above roughly 20°, and must say why — a figure-eight for ten
+  to fifteen seconds brings it down. This is not a nicety: at 89° accuracy the
+  compass's own drift is an order of magnitude larger than a neodymium magnet's
+  effect, so every derived reading is measuring the compass rather than the
+  world.
+- **MEASURED — iOS recalibrates the magnetometer while you use it.** Accuracy
+  improved from 89° to 63° *during* one two-run experiment, which made the two
+  runs incomparable. Any paired measurement must check that accuracy did not
+  drift materially between them.
+- **MEASURED — `deviceorientation` fires at ~60 Hz even with the device
+  perfectly still.** Worth knowing, because a frozen heading is otherwise
+  ambiguous between "the fusion is rejecting the magnetometer" and "no events
+  are arriving at all". Count events before concluding anything from a flat
+  signal.
 
 ### Geolocation
 ```js
@@ -258,6 +421,8 @@ See §5 for the constraint profiles. Beyond those:
 - **The iPhone hardware mute switch silences Web Audio output in all iOS browsers.** If the user has it flipped, sonar and Doppler emit nothing. Detect "no signal received at the emit frequency" and show a "check mute switch" hint.
 - Use **AudioWorklet** for anything sample-accurate (sonar). `ScriptProcessorNode` is deprecated and glitches. AudioWorklet works on iOS 14.5+.
 - The bottom speaker and bottom mic are physically adjacent — direct coupling will dominate any sonar return. Plan to blank the first ~1–2 ms of the correlation.
+- ⚠️ **The analysis graph must terminate at `destination` or WebKit never feeds it.** See §5 — this is the one that will cost you a debugging session, and it will not reproduce on a desktop.
+- **Still unconfirmed on the reference device:** the actual `audioCtx.sampleRate`. The diagnostics screen reports it; nobody has yet written it down. It decides the ultrasonic ceiling for Instruments 8 and 10, so read it before designing either.
 
 ### Camera
 ```js
@@ -268,6 +433,7 @@ const stream = await navigator.mediaDevices.getUserMedia({
 - The `<video>` element **must** have `playsinline` and `muted` or iOS will refuse to play it inline.
 - Torch/flash control (`applyConstraints({advanced:[{torch:true}]})`) is **not reliably available on iOS**. Feature-detect with `track.getCapabilities()` and hide any UI that depends on it. Do not build an instrument that requires it.
 - Release the track on screen exit. A leaked camera stream keeps the privacy indicator lit in every browser.
+- **MEASURED:** the stream from `getUserMedia` on the reference device is 1280×720. The `playsinline` + `muted` requirement is real; both attributes and both properties are set in `sensors/camera.ts` because setting only the attributes is not always enough.
 
 ---
 
@@ -277,6 +443,12 @@ const stream = await navigator.mediaDevices.getUserMedia({
 Display lat/lon (decimal + DMS), accuracy radius, altitude ±accuracy, speed (m/s and km/h), GPS heading. Add a session track log with total distance via haversine. Show a satellite-fix quality indicator derived from `accuracy`.
 
 **Acceptance:** Walk 100 m; logged distance should be within ~10%.
+
+**MEASURED — passes.** Note that a drift filter is essential and is not
+obvious from the spec above: a stationary phone accumulates hundreds of metres
+of GNSS wander if every fix is integrated. Discard fixes coarser than ~30 m,
+and steps shorter than half the reported accuracy radius — a step smaller than
+the uncertainty is indistinguishable from noise.
 
 ---
 
@@ -293,6 +465,12 @@ Show `webkitCompassAccuracy` as a confidence ring.
 
 **Acceptance:** Reads within ~5° of a known-good compass; the bubble level agrees with a real one on a flat table. Verify in all three browsers — this is the cheapest instrument that exercises the orientation permission path.
 
+**MEASURED — passes, within 2° on both halves.** Do both halves. The bubble
+check is what validates the pitch/roll axis mapping, and Instrument 6's entire
+ray derivation rests on that mapping being right — so a compass that reads
+correctly while the level is silently inverted would poison the rangefinder
+with no visible symptom.
+
 ---
 
 ### 4. Seismograph / vibration — Easy
@@ -304,6 +482,12 @@ Add an FFT over a ~4 s window to show the dominant vibration frequency (usable t
 
 **Acceptance:** Tapping the table produces clear transients; the phone sitting still on a desk reads near zero.
 
+**MEASURED — passes.** Two implementation notes: draw the trace right-anchored
+so it scrolls like a chart recorder rather than compressing into a sliver while
+the buffer fills, and decay peak-hold *exponentially* — a fixed per-second
+subtraction zeroes the peak instantly whenever the signal is small, which for
+an auto-ranging index is most of the time.
+
 ---
 
 ### 5. Audio spectrum analyzer — Easy
@@ -312,6 +496,13 @@ Acquire the mic with the **`raw`** profile (§5). `AnalyserNode`, `fftSize` 8192
 `binHz = sampleRate / fftSize`. Show it in the UI.
 
 **Acceptance:** Play a 440 Hz tone from another device; peak lands within one bin.
+
+**MEASURED — passes, but only after the §0.7 graph-termination fix.** Before
+that it displayed nothing at all, with no error. Two further notes: seed the
+peak search *inside* the search range or the DC bin wins every time and the
+readout sits at 0.0 Hz forever; and search only for local maxima above ~40 Hz,
+because the monotonic low-frequency rumble skirt is genuinely the tallest thing
+on screen and is never the note you are looking for.
 
 ---
 
@@ -341,9 +532,70 @@ Genuinely metric distance measurement using only the camera and the gravity vect
 
 **Calibration:** FOV is the dominant error source, and `getUserMedia` may crop relative to the native camera. Do not hardcode 69°. Build a calibration mode: place an object at a measured distance, tap it, and solve for the FOV that makes the reading correct. Persist to `localStorage`. **Calibrate per browser** — if the WKWebView crop factor differs from Safari's, one stored value will be wrong in the other. Key the stored calibration by a capability fingerprint, not a UA string.
 
+### CORRECTION — one known distance is not enough
+
+The single-point calibration above is **not sufficient, and is actively
+dangerous**, because it cannot separate the two unknowns.
+
+Uncalibrated on the reference device, a tape-measured 2.00 m read **1.76 m**
+— 12% low. That is explained equally well by a field of view that is too wide
+*or* a camera height that is too small: at the entered 1.4 m, a true height of
+`1.4 / 0.88 = 1.59 m` fits the same observation exactly. Solving for FOV while
+the height is wrong absorbs the height error into the FOV, and the result reads
+*perfectly at its own calibration distance and wrongly at every other one*
+while looking authoritative. A test in the repo demonstrates it: a one-point
+fit with the height 0.22 m out is exact where calibrated and 10.6% off at 2.7 m.
+
+**Use two points and solve for both.** Taking `h` from the first equation and
+substituting into the second leaves one equation in the field of view alone:
+
+```
+h = D₁ · tan θ₁(f)          ⇒     tan θ₁(f) / tan θ₂(f) = D₂ / D₁
+```
+
+Solve that for `f` by bisection, then `h` follows directly. `lib/rangefinder.ts`
+implements this as `solveFovAndHeight()`.
+
+Three traps in implementing it, all of which cost time:
+
+1. **A centre tap carries no FOV information at all.** At the exact centre the
+   view ray *is* the optical axis whatever the lens is doing. This is a trap
+   rather than an edge case, because centring the target is precisely what
+   anyone aiming a camera does by reflex. Guard the single-point path against
+   it. Do **not** guard the two-point path — there a central tap is perfectly
+   good as one of a pair, pinning tilt and height while the off-centre one
+   carries the optics.
+2. **A wide search bracket will hit rays above the horizon.** Scanning FOV from
+   20° to 130° puts a shallow tap above the horizon at one end, where there is
+   no solution. Scan for a sub-interval where both taps resolve and the ratio
+   crosses the target, rather than testing the endpoints and giving up.
+3. **The conditioning depends on where the taps fall in the FRAME, not on how
+   far apart the targets are.** This is the one that misleads. An intuitive
+   rule of "use distances at least 1.6× apart" is a proxy for the wrong
+   quantity: tilting the phone between shots changes the depression angle
+   without exercising the lens at all, so two taps at similar frame positions
+   leave the ratio nearly flat in `f` and a 1% distance error swings the answer
+   by tens of degrees. Frame one target low, the other near the middle, and
+   keep the tilt similar.
+
+**Measure the conditioning rather than guessing it.** Perturb the two input
+distances by 1% — about what a tape and a tap are good for — refit, and see how
+far the answer moves. That number is the honest 1σ on the calibrated FOV and
+should feed the uncertainty band directly instead of some flattering fixed
+figure. A fit no better than the uncalibrated guess should be **refused**, not
+stored: a calibration that is no improvement, presented as a calibration, is
+worse than none.
+
 **Accuracy:** a few percent from ~0.5–5 m. Error grows as `1/tan θ`, so it degrades sharply at distance. Show an uncertainty band and refuse to display beyond ~8 m.
 
 **Acceptance:** Objects on the floor at a tape-measured 1 m, 2 m, and 4 m read within 10%.
+
+**MEASURED — passes.** After two-point calibration with both distances taken at
+the same camera height, readings are accurate **to within inches** at those
+ranges, comfortably inside the 10% bar and in line with the few-percent
+prediction. Verified in simulation as well: against synthetic optics of 58.0°
+and 1.62 m the fit recovers 57.5° and 1.61 m, and a third distance never used
+in the fit reads within 0.26%.
 
 ---
 
@@ -374,7 +626,68 @@ We cannot read field magnitude in any iOS browser. We *can* detect disturbances 
 
 **Known risk:** iOS Core Motion already performs fusion that may partially reject magnetic outliers, damping signal B. **Measure this before building UI around it** — sweep the phone past a speaker magnet and log the raw residual. If signal B turns out to be too smoothed, fall back to signal A alone; it still works. The fusion is the OS's, so the result will be the same in all three browsers — measure once.
 
+### MEASURED — §11 q.2 is answered. Signal B is not damped.
+
+This was the one genuinely open technical question in the document, and the
+answer is emphatic. A paired experiment on the reference device, phone resting
+on a table, using the probe screen built for exactly this:
+
+| | baseline | disturbed |
+|---|---|---|
+| rotation | 0.85° | 9.18° |
+| residual RMS | **0.021°** | 4.68° |
+| residual peak | 0.216° | **14.28°** |
+| `webkitCompassAccuracy` | 10° | 10° → 26° |
+
+**691× its own noise floor**, against a detection threshold of 4×. Core Motion
+is not rejecting the magnetometer in any way that matters. Signal B is the
+strongest signal in the entire instrument set.
+
+Two corrections to what this section assumed, and one caution:
+
+**CORRECTION — the static case is the primary detection mode, not the sweep.**
+Framing signal B as "integrate yaw rate and compare against heading change"
+makes rotation feel mandatory. It is not, and the sweep is the *harder*
+experiment. With the phone still, the predicted heading change is zero and the
+residual reduces to *the heading moved while the device did not* — the cleanest
+statement of a magnetic anomaly available, with no gyro integration, no
+accumulated bias and nothing to detrend. That is where the 0.021° floor comes
+from; a sweep will never be that quiet. Build the still case first.
+
+**CORRECTION — signal A is the weaker fallback, not the safer one.** This
+section treats A as the dependable backstop if B fails. On the reference device
+it is the reverse. `webkitCompassAccuracy` sat at a constant 10 through an 80°
+heading excursion in one recording, and in the paired run above it responded
+but lagged the residual by seconds and caught only one of two transients. It
+corroborates. It does not detect.
+
+**CAUTION — the compass's own drift will swamp everything if you let it.** See
+§7: at 89° accuracy the heading wanders 60° unprompted. An anomaly detector
+must gate on `webkitCompassAccuracy` and refuse to report above ~20°, or it
+will confidently report anomalies that are nothing but an uncalibrated
+compass. This is the single most important thing to get right in the
+instrument.
+
+**Implementation note that cost a debugging cycle.** A detrend EMA with a 25 s
+time constant carries charge across measurement sessions. A genuinely quiet
+baseline recorded shortly after a large excursion reported a noise floor of
+13.98° when its raw residual never left ±0.07° — an inflation of 627×. Reset
+the filter when a session starts, and compute reported statistics from the
+recorded raw series rather than from whatever the live filter happens to be
+holding. In the live instrument, the bias tracker must additionally **freeze
+while triggered**: otherwise it charges up during the event, and when the event
+ends the corrected residual swings the other way and sits there for a full time
+constant, so the detector reports a phantom anomaly after every real one and
+never re-arms.
+
 **Acceptance:** Sweeping past a fridge magnet or a laptop produces a visible, repeatable spike in at least one of the two signals, distinguishable from the noise floor of an undisturbed sweep.
+
+**Note on test sources:** flexible fridge-door magnets are multipole by design —
+alternating stripes millimetres apart — so their field collapses almost
+immediately and will not reach the magnetometer. They produce a convincing
+false negative. Use a speaker driver, a neodymium magnet, a MagSafe puck or a
+laptop hinge, within a few centimetres of the **top** of the phone, which is
+where the magnetometer sits.
 
 ---
 
@@ -408,6 +721,7 @@ const depth = await pipeline('depth-estimation',
 
 **Notes:**
 - **WebGPU availability is the one place the three browsers may genuinely diverge** — Safari 26+ has it on by default; whether WKWebView exposes it to Chrome/Edge on the same iOS version needs verifying on device (§11). Detect `'gpu' in navigator` and fall back to WASM. Tell the user which backend is running and that WASM will be slow.
+  **MEASURED:** WebGPU **is** present in Chrome on iOS 26.6.1, so WKWebView does expose it. Commit to the WebGPU path; keep WASM as a genuine fallback rather than an expected route for two browsers out of three.
 - Downscale input to 256×256 or 384×384 before inference. Full 518×518 is too slow on a phone.
 - Expect roughly 5–15 FPS on recent iPhone hardware via WebGPU; single-digit or worse on WASM. Run inference in a loop decoupled from the render loop and show the latest available map.
 - Model download is ~25–50 MB. Cache it (Transformers.js uses the Cache API) and show a first-run progress bar. **The cache is per-browser** — a user who tries the app in both Safari and Chrome downloads it twice.
@@ -454,36 +768,165 @@ Matched-filter time-of-flight ranging. **Requires the `raw` mic profile (§5)** 
 - Landscape and portrait both need to work; recompute the FOV/ray mapping on `orientationchange`.
 - Add a **diagnostics screen** listing the detected capabilities (§1), `audioCtx.sampleRate`, the resolved gravity sign convention, and the active depth backend. It costs an hour and will save days of remote debugging across three browsers.
 
+### MEASURED — things worth adding to this list
+
+- **The diagnostics advice was right and then some.** Beyond the capability
+  list, the two additions that paid for themselves were live event rates for
+  `devicemotion` and `deviceorientation`, and the gravity calibration itself.
+  A frozen signal is ambiguous until you can see whether events are arriving
+  at all, and the calibration turned §11 q.1 from an argument into a
+  measurement.
+- **Estimate a noise floor before reporting any derived index.** A number in
+  degrees means nothing on its own; the same 14° is either overwhelming or
+  invisible depending on what the device does at rest. Measure the floor
+  during a quiet period, express the index as a multiple of it, and freeze the
+  estimator while triggered so an event cannot raise the floor it is being
+  measured against.
+- **Reset filters at session boundaries, and compute reported statistics from
+  the recorded raw series.** Any long time constant will otherwise carry state
+  across a boundary and contaminate whatever comes next. This bit twice, in two
+  different instruments.
+- **When a screen is a procedure, lay it out as one.** The probe accumulated
+  three overlapping sets of instructions in conflicting order and became
+  genuinely confusing to follow. Numbered steps in the order they must be
+  performed, with the gating check first, fixed it.
+- **Separate the maths from the instrument so it can be tested.** The
+  rangefinder geometry and the residual computation both live in `lib/` and
+  `sensors/` with no UI, and are tested against closed-form cases — a 30°
+  depression must give `h·√3`, a synthesised tap must round-trip back through
+  the calibration solver. Those tests caught two real errors that would have
+  presented on a phone as "the numbers look a bit off".
+- **A headless desktop suite will not catch platform bugs, and knowing that is
+  the point.** Two of the worst bugs this project has seen — the dangling
+  analyser (§5) and the compass drift (§7) — were invisible in Chromium and
+  obvious on the phone. Keep the desktop suite for regressions and layout, but
+  never let a green run stand in for a device check.
+
 ---
 
 ## 10. Suggested milestones
 
-- **M1** — Boot gate + HTTPS serving + Geo + Compass + Seismograph + Spectrum, plus the diagnostics screen. This is a complete, useful app. **Verify M1 on Safari, Chrome and Edge before moving on** — the permission and secure-context paths are the only genuinely browser-sensitive parts of the whole project, and you want them proven early.
-- **M2** — Floor-plane rangefinder with calibration flow, and the magnetic anomaly detector. Measure the Core Motion damping risk (Instrument 7) *early* — it is the one open technical question in this doc.
-- **M3** — Ultrasonic Doppler.
-- **M4** — ML depth scanner. Check the WebGPU matrix (§1) before committing to the WebGPU path.
+- **M1** — ✅ **built.** Boot gate + HTTPS serving + Geo + Compass + Seismograph + Spectrum, plus the diagnostics screen. This is a complete, useful app. **Verify M1 on Safari, Chrome and Edge before moving on** — the permission and secure-context paths are the only genuinely browser-sensitive parts of the whole project, and you want them proven early.
+  **⚠️ This gate is only half satisfied.** Everything has been verified in
+  **Chrome on iOS 26.6.1** and passes. Safari and Edge have never been opened.
+  That is the outstanding item before M3, and it also closes §11 q.8.
+- **M2** — ✅ **built.** Floor-plane rangefinder with calibration flow, and the magnetic anomaly detector. Measure the Core Motion damping risk (Instrument 7) *early* — it is the one open technical question in this doc.
+  The advice to measure early was correct and was followed: a dedicated probe
+  screen was built before Instrument 7 existed, and answering q.2 first changed
+  the instrument's design substantially (see §8.7). The rangefinder passes its
+  acceptance test. **Instrument 7 has not yet been exercised on hardware.**
+- **M3** — Ultrasonic Doppler. **Next.** Read the runtime sample rate first (§7) — it sets the carrier and is still unrecorded. Handle the §0.7 graph-termination trap in the emit/analyse path.
+- **M4** — ML depth scanner. Check the WebGPU matrix (§1) before committing to the WebGPU path. **Already checked: WebGPU is present in Chrome on iOS 26**, so the WebGPU path is viable and WASM is a fallback rather than the expected route.
 - **M5** — Sonar, if M1–M4 are solid.
 
 ---
 
 ## 11. Open questions for the implementer to resolve empirically
 
+Status as of the last device session — iPhone, iOS 26.6.1, Chrome.
+
 Engine-level questions — measure once, the answer holds for all three browsers:
 
-1. `accelerationIncludingGravity` sign convention on the actual test device (§7).
-2. Whether iOS Core Motion's fusion damps the gyro/compass residual enough to kill Instrument 7's signal B.
-3. Actual `audioCtx.sampleRate` on the test device (48 k vs 44.1 k) — determines the ultrasonic ceiling.
-4. Whether `track.getCapabilities()` exposes `exposureTime` / `iso` on this iOS version. If it does, a **calibrated lux meter** becomes possible via `L ≈ (N²/t)·(K/S)` with fixed aperture N and K ≈ 12.5 — worth adding as a bonus instrument. If not, ship a relative light meter from mean frame luminance.
+1. ✅ **ANSWERED.** `accelerationIncludingGravity` sign convention: flat and
+   screen-up reads **(−0.03, 0.21, −9.80)**, so `z` is negative, the engine
+   uses the **iOS convention**, and the gravity-down sign constant is **+1**.
+   Full reasoning in §7. Confirmed the assumed default, which is precisely why
+   it needed measuring — a wrong guess is silent.
+2. ✅ **ANSWERED, and the answer is good news.** Core Motion does **not** damp
+   the residual. 691× the device's own noise floor: 0.021° RMS at rest against
+   a 14.28° peak with a neodymium magnet. Full data in §8.7, along with two
+   corrections to how that section framed the problem — the static case beats
+   the sweep, and signal A is the weaker of the two rather than the safer.
+3. ⬜ **STILL OPEN.** Actual `audioCtx.sampleRate` on the device (48 k vs
+   44.1 k) — determines the ultrasonic ceiling. The diagnostics and spectrum
+   screens both display it; it has simply not been written down. **Read this
+   before starting M3.**
+4. ⬜ **STILL OPEN.** Whether `track.getCapabilities()` exposes `exposureTime` /
+   `iso` on this iOS version. If it does, a **calibrated lux meter** becomes
+   possible via `L ≈ (N²/t)·(K/S)` with fixed aperture N and K ≈ 12.5 — worth
+   adding as a bonus instrument. If not, ship a relative light meter from mean
+   frame luminance. Cheap to check: the camera is already acquired by
+   Instrument 6, so this is a few lines on the diagnostics screen.
 
 Browser-level questions — check all three:
 
-5. Real-world FOV of the `getUserMedia` video stream vs. the native camera (crop factor), **and whether it differs between Safari and WKWebView**. Drives Instrument 6 calibration and whether one stored calibration can be shared.
-6. Whether WebGPU is exposed to Chrome and Edge on the target iOS version, or only to Safari (§1, Instrument 9).
-7. Whether Wake Lock is available in all three.
-8. Whether the motion permission prompt behaves identically in Chrome and Edge, and what the denial-recovery path actually is in each.
+5. 🟡 **PARTIALLY ANSWERED.** The real-world FOV is now measurable rather than
+   guessed — the two-point calibration in §8.6 recovers it along with the
+   camera height, and the result is stored keyed by capability fingerprint
+   *and* orientation. What remains unknown is whether Safari and WKWebView
+   actually differ, because only Chrome has been calibrated. The
+   infrastructure to answer it exists; it needs one calibration run in Safari
+   and a comparison of the stored values.
+6. ✅ **ANSWERED.** WebGPU **is** exposed to Chrome on iOS 26.6.1, so it is not
+   Safari-only and WKWebView does provide it. Instrument 9 can commit to the
+   WebGPU path. Edge unconfirmed but now unlikely to differ.
+7. 🟡 **PARTIALLY ANSWERED.** Wake Lock is guaranteed by the iOS 26 floor
+   (16.4+) and the diagnostics screen reports whether it is actually *held*,
+   which is a different and more useful claim. Not yet recorded per browser.
+8. ⬜ **STILL OPEN.** Whether the motion permission prompt behaves identically
+   in Chrome and Edge, and what the denial-recovery path actually is in each.
+   Nothing has been denied yet, so the recovery path has never been walked.
+   Worth deliberately denying once in each browser rather than waiting to find
+   out from a user.
+
+### New questions raised by the work so far
+
+9. Does `webkitCompassAccuracy` have a hard floor of 10° on this hardware? It
+   was observed pinned at exactly 10 across long stretches and never went
+   below it. If that is a floor rather than a genuine estimate, the gating
+   threshold in Instrument 7 is sound but the *corroboration* value of signal A
+   is even weaker than §8.7 already suggests.
+10. How quickly does compass calibration decay in normal use? If accuracy
+    drifts back above the 20° gate within minutes, Instrument 7 needs a
+    recalibration prompt rather than a one-time figure-eight, and that changes
+    its interaction model.
 
 ---
 
 ## 12. If an Android or desktop device ever becomes available
 
 These unlock immediately and are worth knowing about, but **do not build for them now** — and note that none of them arrive by supporting Chrome or Edge *on iOS*, because those are WebKit (§1). They require the real Blink/Gecko engine on another platform: `Magnetometer` and the rest of the Generic Sensor API, WebXR depth sensing + `XRLightProbe`, Web NFC, `BarcodeDetector`, Battery Status, and — the big one — **Web Bluetooth**, whose standard Environmental Sensing service (`0x181A`) exposes temperature, humidity, pressure, UV index, and magnetic flux density from a cheap external BLE sensor pod. That is the path to a "real" tricorder with the sensors the browser refuses to provide.
+
+**One qualification, now that Instrument 7 has been measured.** The magnetometer
+entry above is less urgent than it looked when this was written. A real
+`Magnetometer` would give absolute µT, which the current approach genuinely
+cannot, but the gyro/compass residual detects *disturbance* at 691× its noise
+floor — which is what the instrument is actually for. Web Bluetooth and the
+environmental sensing service remain the real prize, because temperature,
+humidity and pressure have no substitute at all.
+
+---
+
+## 13. Where to pick up
+
+Current state: **M1 and M2 built and pushed.** Seven instruments, a diagnostics
+screen and a measurement probe. ~36 kB gzipped, no runtime dependencies.
+
+The desktop test suite covers 16 geometry cases plus end-to-end checks for the
+rangefinder, Instrument 7, four probe regressions, and a smoke test that mounts
+and unmounts all eleven screens. It is a regression net, not evidence about the
+platform — see the last bullet of §9.
+
+**In priority order:**
+
+1. **Exercise Instrument 7 on hardware.** It is built entirely from measurements
+   but has only ever run against synthetic data. Figure-eight to calibrate, rest
+   the phone, let it learn the floor for three seconds, bring a magnet in. The
+   floor it learns should land near 0.021°, and the index should settle back
+   near 1 once the magnet leaves. If either is wrong, it is fresh in mind and
+   cheap to fix.
+2. **Run M1 in Safari and Edge.** The §10 gate, still only half satisfied, and
+   the only genuinely browser-sensitive part of the project. Closes §11 q.8 and
+   the remaining half of q.5 and q.7.
+3. **Record the audio sample rate** (§11 q.3). One glance at diagnostics, and
+   M3 needs it.
+4. **Then M3, the ultrasonic Doppler.** Straightforward next to what M2
+   required. The traps are already known: the graph-termination bug in §0.7,
+   the mute switch, and the raw mic profile.
+
+**Two small things worth doing when convenient:** check whether
+`track.getCapabilities()` exposes `exposureTime`/`iso` (§11 q.4 — a few lines
+on the diagnostics screen, and it decides whether a calibrated lux meter is
+possible), and confirm the rangefinder's uncertainty band actually brackets the
+true distance. The second is what separates a number with a real error bar from
+one with a decorative one.
