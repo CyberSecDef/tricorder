@@ -114,6 +114,18 @@ export class MagProbeInstrument extends Instrument {
   private refAccuracy = 0;
   private peakAccuracy = 0;
 
+  /**
+   * Event bookkeeping. A frozen heading has two very different causes: the
+   * fusion is rejecting the magnetometer, or deviceorientation simply is not
+   * firing while the device sits still. Counting events and distinct heading
+   * values separates them, and the difference decides whether Instrument 7 is
+   * dead or merely being tested wrongly.
+   */
+  private orientEvents = 0;
+  private orientHz = 0;
+  private headingChanges = 0;
+  private lastHeadingValue: number | null = null;
+
   protected build(root: HTMLElement): void {
     const scroll = el('div', { class: 'stage__scroll' });
     append(root, scroll);
@@ -138,6 +150,7 @@ export class MagProbeInstrument extends Instrument {
     const rHeadingRaw = readout('Compass heading', { unit: '°', note: 'raw webkitCompassHeading' });
     const rDeviation = readout('Deviation from mark', { unit: '°', note: '' });
     const rPeakDev = readout('Peak deviation', { unit: '°', note: 'since the mark' });
+    const rEvents = readout('Orientation events', { unit: 'Hz', note: '' });
 
     const btnMark = el('button', { class: 'btn', type: 'button' }, 'Mark reference');
     btnMark.addEventListener('click', () => {
@@ -160,6 +173,7 @@ export class MagProbeInstrument extends Instrument {
         '<strong>Not all magnets are usable.</strong> Flexible fridge-door magnets are deliberately multipole — alternating stripes a few millimetres apart — so their field collapses almost immediately and they will not reach the magnetometer. ' +
         'Use a speaker driver (headphones, a Bluetooth speaker), a MagSafe puck or magnetic mount, a laptop lid hinge, or a neodymium magnet. A steel mass such as a cast-iron pan or a large screwdriver also works, by distorting the field rather than adding to it.'),
       el('div', { class: 'grid' }, rHeadingRaw.node, rDeviation.node, rPeakDev.node),
+      el('div', { class: 'grid' }, rEvents.node),
       el('div', { class: 'btn-row' }, btnMark));
 
     const resScope = autoCanvas();
@@ -241,8 +255,21 @@ export class MagProbeInstrument extends Instrument {
     this.sub(gravity, (g) => { this.gDown = g.down; });
 
     this.sub(orientation, (o) => {
+      this.orientEvents++;
+      if (o.heading !== null && o.heading !== this.lastHeadingValue) {
+        if (this.lastHeadingValue !== null) this.headingChanges++;
+        this.lastHeadingValue = o.heading;
+      }
       this.heading = o.heading;
       if (o.headingAccuracy !== null) this.accuracy = o.headingAccuracy;
+    });
+
+    let orientTick = performance.now();
+    this.every(1000, () => {
+      const now = performance.now();
+      this.orientHz = this.orientEvents / Math.max(0.001, (now - orientTick) / 1000);
+      this.orientEvents = 0;
+      orientTick = now;
     });
 
     // Everything is computed on the motion clock, because that is the stream
@@ -351,6 +378,13 @@ export class MagProbeInstrument extends Instrument {
         rPeakDev.set('—');
         rPeakDev.setState('idle');
       }
+
+      // A frozen heading means nothing unless events are actually arriving.
+      rEvents.set(fmt(this.orientHz, 1),
+        this.orientHz < 1
+          ? 'NOT FIRING — a frozen heading here proves nothing'
+          : `${this.headingChanges} distinct heading values seen`);
+      rEvents.setState(this.orientHz >= 5 ? 'ok' : this.orientHz >= 1 ? 'warn' : 'bad');
 
       rSign.set(this.sign > 0 ? '+1' : '−1',
         `auto-estimated · confidence ${Math.min(100, Math.abs(this.signEvidence) / 4).toFixed(0)}%`);
