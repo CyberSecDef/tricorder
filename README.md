@@ -27,7 +27,7 @@ the source point back at it.
 | 5 | Audio spectrum analyzer | ✅ built |
 | — | Diagnostics | ✅ built |
 | — | Magnetic residual probe (§11 q.2 harness) | ✅ built — awaiting a magnet sweep |
-| 6 | Floor-plane rangefinder | ✅ built — needs tape-measure verification |
+| 6 | Floor-plane rangefinder | ✅ built and **verified on device** — within inches after two-point calibration |
 | 7 | Magnetic anomaly detector | ✅ built — needs on-device verification |
 | 8 | Ultrasonic Doppler | M3 — stub |
 | 9 | ML depth scanner | M4 — stub |
@@ -161,6 +161,8 @@ WKWebView-versus-Safari question is not a version question:
 | Geo | Pass |
 | Spectrum | Pass, after fixing a dangling AnalyserNode WebKit never fed |
 | §11 q.6 WebGPU | **Answered.** Present in **Chrome** on iOS 26 — WKWebView exposes it, not Safari only |
+| §11 q.2 residual | **Answered.** Signal B undamped, 691× its noise floor. See below |
+| Rangefinder | Pass — uncalibrated it read 1.76 m at 2.00 m (−12%); after two-point calibration, accurate to inches |
 
 Tested in Chrome. Safari and Edge still outstanding for the §10 M1 gate.
 
