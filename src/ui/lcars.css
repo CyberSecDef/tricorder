@@ -589,3 +589,16 @@ body {
   padding: 7px 9px;
   width: 108px;
 }
+
+/* A screen that is a procedure should read as one: steps grouped and spaced,
+   and the selected option in a choice unmistakable. */
+.step { display: flex; flex-direction: column; gap: 8px; }
+
+.btn[aria-current='true'] {
+  box-shadow: inset 0 0 0 3px #000, inset 0 0 0 6px var(--lc-sunflower);
+  background: var(--lc-sunflower);
+}
+.btn[aria-current='false'] { opacity: 0.55; }
+
+.notice ol { margin: 6px 0 0; padding-left: 20px; }
+.notice ol li { margin-bottom: 5px; }

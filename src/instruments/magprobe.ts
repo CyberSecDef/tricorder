@@ -165,9 +165,23 @@ export class MagProbeInstrument extends Instrument {
     const scroll = el('div', { class: 'stage__scroll' });
     append(root, scroll);
 
-    append(scroll, notice('warn',
-      '<strong>This is an experiment, not an instrument.</strong> It exists to answer one question: does Core Motion\'s sensor fusion damp the gyro/compass residual so hard that Instrument 7\'s signal B is unusable? ' +
-      'Record a <em>baseline</em> sweep with no ferrous mass nearby, then a <em>disturbed</em> sweep past a speaker magnet, fridge magnet or laptop. Same motion both times. The verdict compares them.'));
+    // The screen is a procedure, so it is laid out as one: containers are
+    // created in the order they must be worked through, and everything below
+    // appends into the step it belongs to rather than onto the end.
+    const stepCompass = el('div', { class: 'step' });
+    const compassGate = el('div');
+    const compassCheck = el('div');
+    append(stepCompass, compassGate, compassCheck);
+    const stepProtocol = el('div', { class: 'step' });
+    const stepRecord = el('div', { class: 'step' });
+    const secLive = el('div', { class: 'step' });
+    const secResult = el('div', { class: 'step' });
+
+    append(scroll,
+      notice('warn',
+        '<strong>This is an experiment, not an instrument.</strong> It answers one question: does Core Motion\'s fusion damp the gyro/compass residual so hard that Instrument 7\'s signal B is unusable? ' +
+        'You record the same conditions twice — once clean, once with a magnet — and the verdict compares them. Work down the steps in order.'),
+      stepCompass, stepProtocol, stepRecord, secLive, secResult);
 
     // --- live readouts ---------------------------------------------------
     const rResidual = readout('Residual', { unit: '°', note: 'detrended, 1.5 s window' });
@@ -177,7 +191,7 @@ export class MagProbeInstrument extends Instrument {
     const rSign = readout('Yaw sign', { note: '' });
     const rRot = readout('Rotation this run', { unit: '°', note: '' });
 
-    append(scroll, section('Live'),
+    append(secLive, section('Live readouts'),
       el('div', { class: 'grid' }, rResidual.node, rRaw.node, rYaw.node),
       el('div', { class: 'grid' }, rAcc.node, rSign.node, rRot.node));
 
@@ -195,10 +209,10 @@ export class MagProbeInstrument extends Instrument {
       this.peakAccuracy = this.accuracy;
     });
 
-    append(scroll,
-      section('Static magnet test'),
+    append(compassCheck,
+      section('Optional — does the compass see your magnet at all?'),
       notice('warn',
-        '<strong>Do this first, and do not rotate the phone.</strong> Lay it flat, press <em>Mark reference</em>, then bring the magnet slowly up to it. ' +
+        '<strong>Only needed if a run comes back flat.</strong> Lay the phone down, press <em>Mark reference</em>, then bring the magnet slowly up to it. ' +
         'The magnetometer sits near the <strong>top of the phone</strong>, so approach that end, and get within a few centimetres — a fridge magnet at arm\'s length proves nothing. ' +
         'If the heading does not move and the accuracy does not degrade, the compass itself never saw the field, and no amount of residual maths will recover a signal that was never there.'),
       notice('ok',
@@ -219,12 +233,12 @@ export class MagProbeInstrument extends Instrument {
     const accBox = el('div', { class: 'scope', style: 'height:min(18dvh,130px)' }, accScope.node);
     append(accBox, el('div', { class: 'scope__cap', text: 'COMPASS ACCURACY — SIGNAL A' }));
 
-    append(scroll, resBox, accBox);
+    append(secLive, resBox, accBox);
 
     // --- recording controls ----------------------------------------------
     const rCalState = readout('Compass calibration', { unit: '°', note: '', wide: true });
     const calGate = el('div');
-    append(scroll, section('Compass readiness'), rCalState.node, calGate);
+    append(compassGate, section('Step 1 — compass readiness'), rCalState.node, calGate);
 
     // Protocol selector. Static is the default because it is both the easier
     // experiment to perform and the one with the better noise floor.
@@ -246,11 +260,13 @@ export class MagProbeInstrument extends Instrument {
       storage.save('magprobe:protocol', p);
       this.runs = {};
       renderProtocol();
+      renderProcedure();
       renderVerdict();
     };
     btnStatic.addEventListener('click', () => setProtocol('static'));
     btnSweep.addEventListener('click', () => setProtocol('sweep'));
-    append(scroll, section('Protocol'), el('div', { class: 'btn-row' }, btnStatic, btnSweep), protoNote);
+    append(stepProtocol, section('Step 2 — choose a protocol'),
+      el('div', { class: 'btn-row' }, btnStatic, btnSweep), protoNote);
     renderProtocol();
 
     const btnBase = el('button', { class: 'btn', type: 'button' }, 'Record baseline');
@@ -301,6 +317,24 @@ export class MagProbeInstrument extends Instrument {
     btnCopy.addEventListener('click', () => void this.copyResults(btnCopy));
 
     let gateShown: boolean | null = null;
+    const procedure = el('div');
+
+    const renderProcedure = () => {
+      clear(procedure);
+      const steps = this.protocol === 'static'
+        ? ['Rest the phone on a table and do not touch it again until both runs are done.',
+           '<strong>Record baseline</strong> → leave it alone for 6–10 s → <strong>Stop</strong>.',
+           '<strong>Record disturbed</strong> → wait a second, bring the magnet to the top of the phone, hold it a moment, take it away → <strong>Stop</strong>.',
+           'Check both columns in the runs table are filled, then <strong>Copy results JSON</strong>.']
+        : [`<strong>Record baseline</strong> → rotate smoothly through ${MIN_SWEEP_DEG}°+ of yaw, nothing ferrous nearby → <strong>Stop</strong>.`,
+           `<strong>Record disturbed</strong> → the same rotation, sweeping past the magnet → <strong>Stop</strong>.`,
+           'Check both columns in the runs table are filled, then <strong>Copy results JSON</strong>.'];
+      const n = el('div', { class: 'notice notice--ok' });
+      n.innerHTML = `<strong>Procedure</strong><ol>${steps.map((x) => `<li>${x}</li>`).join('')}</ol>`;
+      append(procedure, n);
+    };
+
+    renderProcedure();
 
     const renderStatus = () => {
       clear(recStatus);
@@ -310,13 +344,13 @@ export class MagProbeInstrument extends Instrument {
       }
     };
 
-    append(scroll, section('Record'),
+    append(stepRecord, section('Step 3 — record both runs'),
       el('div', { class: 'btn-row' }, btnBase, btnDist, btnStop),
-      recStatus);
+      recStatus, procedure);
 
     const runTable = el('div');
     const verdict = el('div');
-    append(scroll, section('Runs'), runTable, section('Verdict'), verdict,
+    append(secResult, section('Runs'), runTable, section('Verdict'), verdict,
       el('div', { class: 'btn-row' }, btnCopy));
 
     const renderVerdict = () => {
