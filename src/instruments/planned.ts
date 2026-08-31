@@ -53,8 +53,10 @@ export const PLANNED: Plan[] = [
     principle:
       'The raw magnetometer is unreachable in every iOS browser, so we infer disturbance instead. Signal A: plot webkitCompassAccuracy over time — it degrades near ferrous mass. Signal B: the gyroscope is magnetically immune and the compass is not, so integrate yaw rate about true vertical and compare it against the actual compass heading change. The residual is the anomaly.',
     blockers: [
-      'OPEN QUESTION (§11 q.2): iOS Core Motion already fuses these signals and may partially reject magnetic outliers, damping signal B. The harness that answers this is built — see the PROBE screen immediately above. Record a clean sweep and a disturbed one; it reports whether B separates from its own noise floor. Do not build this instrument until it has.',
+      'RESOLVED (§11 q.2), measured on iPhone / iOS 26.6.1 with the PROBE screen. Signal B is NOT damped. A phone resting on a table holds a residual noise floor of 0.021° RMS; a neodymium magnet brought to the top of it drives a 14.3° excursion. That is 691x the noise floor against a threshold of 4x. Signal A responded too, but weakly and late: webkitCompassAccuracy went 10° to 26°, clearing its 10° threshold but lagging the residual by seconds.',
       'Yaw rate must be projected onto the gravity vector, not read from rotationRate.alpha — alpha is only yaw when the phone lies flat on its back.',
+      'MEASURED: the instrument must gate on compass calibration. At webkitCompassAccuracy of 89° the heading wanders 60° unprompted, which is a false anomaly larger than any real one. Refuse to report an index above ~20° accuracy and tell the user to run a figure-eight.',
+      'MEASURED: the detrend EMA must reset per measurement session. A 25 s time constant carries charge across runs and inflated one baseline noise floor by 627x.',
       'Heading difference must be unwrapped across the 0/360 seam, and gyro bias detrended with a 20–30 s EMA.',
     ],
     honesty:

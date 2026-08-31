@@ -28,7 +28,7 @@ the source point back at it.
 | — | Diagnostics | ✅ built |
 | — | Magnetic residual probe (§11 q.2 harness) | ✅ built — awaiting a magnet sweep |
 | 6 | Floor-plane rangefinder | ✅ built — needs tape-measure verification |
-| 7 | Magnetic anomaly detector | M2 — stub |
+| 7 | Magnetic anomaly detector | unblocked — §11 q.2 answered, ready to build |
 | 8 | Ultrasonic Doppler | M3 — stub |
 | 9 | ML depth scanner | M4 — stub |
 | 10 | Acoustic sonar | M5 — stub |
@@ -123,9 +123,20 @@ WKWebView-versus-Safari question is not a version question:
    gravity*, phone flat and screen up. Nothing assumes a polarity at build
    time; the result is persisted and shown. Record the observed vector in the
    comment block at the top of `src/sensors/gravity.ts`. **Still open.**
-2. **Whether Core Motion's fusion damps the gyro/compass residual** enough to
-   kill Instrument 7's signal B. The one genuinely open technical question in
-   the handoff, and the gate on M2. **Still open — measure before building.**
+2. **Whether Core Motion's fusion damps the gyro/compass residual.** The one
+   genuinely open technical question in the handoff. **Answered: it does not.**
+   Measured with the probe screen on iOS 26.6.1, static protocol:
+
+   | | baseline | disturbed |
+   |---|---|---|
+   | rotation | 0.85° | 9.18° |
+   | residual RMS | **0.021°** | 4.68° |
+   | residual peak | 0.216° | **14.28°** |
+   | compass accuracy | 10° | 10° → 26° |
+
+   Signal B reaches **691× its noise floor** against a threshold of 4×.
+   Signal A responds too but weakly and late, lagging the residual by seconds.
+   Instrument 7 is buildable, on B primarily and A as corroboration.
 3. **Audio sample rate** — Diagnostics → Runtime. Expect 48 kHz on iOS 26,
    giving a 22 kHz ultrasonic ceiling. Confirm rather than assume.
 6. **WebGPU exposure** — **answered.** Present in Chrome on iOS 26, so

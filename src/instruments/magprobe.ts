@@ -680,8 +680,13 @@ export class MagProbeInstrument extends Instrument {
     // run's own noise floor? Peak against baseline RMS is the honest test —
     // an anomaly is an excursion, and baseline RMS is what an excursion has
     // to beat to be visible.
-    const snrB = d.residualPeak / Math.max(b.residualRms, 0.05);
-    const ratioB = d.residualRms / Math.max(b.residualRms, 0.05);
+    // Guard against divide-by-zero only. An earlier floor of 0.05° was chosen
+    // before any real baseline had been measured; devices actually reach
+    // ~0.02° RMS when resting on a table, so that floor was silently
+    // understating good results by more than a factor of two.
+    const floor = 0.005;
+    const snrB = d.residualPeak / Math.max(b.residualRms, floor);
+    const ratioB = d.residualRms / Math.max(b.residualRms, floor);
     const bAlive = snrB >= 4 && ratioB >= 1.5;
     const bMarginal = !bAlive && snrB >= 2.5;
 
