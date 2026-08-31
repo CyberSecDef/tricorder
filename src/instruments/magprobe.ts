@@ -101,6 +101,19 @@ export class MagProbeInstrument extends Instrument {
 
   private trace: Sample[] = [];   // rolling live trace, independent of runs
 
+  /**
+   * Static magnet test. The residual only exists when the phone rotates, so a
+   * null result from a sweep is ambiguous: it could mean Core Motion rejected
+   * the disturbance, or that the magnet never reached the magnetometer at all.
+   * Marking a reference heading and watching raw deviation separates those —
+   * it needs no rotation and no fusion, just the compass output itself.
+   */
+  private refHeading: number | null = null;
+  private deviation = 0;
+  private peakDeviation = 0;
+  private refAccuracy = 0;
+  private peakAccuracy = 0;
+
   protected build(root: HTMLElement): void {
     const scroll = el('div', { class: 'stage__scroll' });
     append(root, scroll);
@@ -120,6 +133,28 @@ export class MagProbeInstrument extends Instrument {
     append(scroll, section('Live'),
       el('div', { class: 'grid' }, rResidual.node, rRaw.node, rYaw.node),
       el('div', { class: 'grid' }, rAcc.node, rSign.node, rRot.node));
+
+    // --- static magnet test ----------------------------------------------
+    const rHeadingRaw = readout('Compass heading', { unit: '°', note: 'raw webkitCompassHeading' });
+    const rDeviation = readout('Deviation from mark', { unit: '°', note: '' });
+    const rPeakDev = readout('Peak deviation', { unit: '°', note: 'since the mark' });
+
+    const btnMark = el('button', { class: 'btn', type: 'button' }, 'Mark reference');
+    btnMark.addEventListener('click', () => {
+      this.refHeading = this.heading;
+      this.refAccuracy = this.accuracy;
+      this.peakDeviation = 0;
+      this.peakAccuracy = this.accuracy;
+    });
+
+    append(scroll,
+      section('Static magnet test'),
+      notice('warn',
+        '<strong>Do this first, and do not rotate the phone.</strong> Lay it flat, press <em>Mark reference</em>, then bring the magnet slowly up to it. ' +
+        'The magnetometer sits near the <strong>top of the phone</strong>, so approach that end, and get within a few centimetres — a fridge magnet at arm\'s length proves nothing. ' +
+        'If the heading does not move and the accuracy does not degrade, the compass itself never saw the field, and no amount of residual maths will recover a signal that was never there.'),
+      el('div', { class: 'grid' }, rHeadingRaw.node, rDeviation.node, rPeakDev.node),
+      el('div', { class: 'btn-row' }, btnMark));
 
     const resScope = autoCanvas();
     const resBox = el('div', { class: 'scope', style: 'height:min(24dvh,180px)' }, resScope.node);
@@ -286,6 +321,31 @@ export class MagProbeInstrument extends Instrument {
       rAcc.set(this.accuracy < 0 ? 'INVALID' : fmt(this.accuracy, 0),
         this.accuracy < 0 ? `raw ${fmt(this.accuracy, 0)} — uncalibrated` : 'lower is better');
       rAcc.setState(this.accuracy < 0 ? 'bad' : this.accuracy <= 15 ? 'ok' : this.accuracy <= 35 ? 'warn' : 'bad');
+      // Static test readouts.
+      rHeadingRaw.set(this.heading === null ? '—' : fmt(this.heading, 1),
+        this.refHeading === null ? 'press Mark reference to begin' : `mark ${fmt(this.refHeading, 1)}°`);
+      rHeadingRaw.setState(this.heading === null ? 'bad' : 'ok');
+
+      if (this.refHeading !== null && this.heading !== null) {
+        this.deviation = angleDelta(this.heading, this.refHeading);
+        this.peakDeviation = Math.max(this.peakDeviation, Math.abs(this.deviation));
+        this.peakAccuracy = Math.max(this.peakAccuracy, this.accuracy);
+        rDeviation.set(fmt(this.deviation, 1), `accuracy ${fmt(this.refAccuracy, 0)}° → ${fmt(this.accuracy, 0)}°`);
+        rDeviation.setState(Math.abs(this.deviation) > 5 ? 'ok' : Math.abs(this.deviation) > 1.5 ? 'warn' : 'bad');
+        rPeakDev.set(fmt(this.peakDeviation, 1),
+          this.peakDeviation > 5
+            ? 'compass responds — the field reaches it'
+            : this.peakDeviation > 1.5
+              ? 'weak response — get the magnet closer'
+              : 'NO RESPONSE — compass never saw the field');
+        rPeakDev.setState(this.peakDeviation > 5 ? 'ok' : this.peakDeviation > 1.5 ? 'warn' : 'bad');
+      } else {
+        rDeviation.set('—');
+        rDeviation.setState('idle');
+        rPeakDev.set('—');
+        rPeakDev.setState('idle');
+      }
+
       rSign.set(this.sign > 0 ? '+1' : '−1',
         `auto-estimated · confidence ${Math.min(100, Math.abs(this.signEvidence) / 4).toFixed(0)}%`);
       rSign.setState(Math.abs(this.signEvidence) > 100 ? 'ok' : 'warn');
