@@ -169,6 +169,15 @@ Acceptance tests per §8, in build order:
 - **Compass** — reads within ~5° of a known-good compass; the bubble agrees with
   a real spirit level on a flat table. Cheapest test of the orientation
   permission path, so run it first in all three browsers.
+- **Rangefinder** — calibrate first, then objects at a tape-measured 1 m, 2 m
+  and 4 m read within 10%. Use the **two-point** calibration: a single known
+  distance cannot separate field of view from camera height, so a one-point fit
+  reads perfectly at its own calibration distance and wrongly everywhere else.
+  Frame the first target low in the frame and the second nearer the middle,
+  keeping the phone at a similar tilt — the field-of-view information comes
+  from where the taps fall in the frame, not from how far away the targets are.
+  The fit measures its own conditioning and refuses anything no better than
+  the uncalibrated guess.
 - **Seismograph** — tapping the table makes clear transients; a phone sitting
   still reads near zero.
 - **Spectrum** — play a 440 Hz tone from another device; the peak lands within

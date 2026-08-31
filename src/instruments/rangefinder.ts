@@ -20,16 +20,29 @@ import { Instrument } from '../ui/screen';
 import { el, append, readout, fmt, section, notice, escapeHtml, clear } from '../ui/dom';
 import { acquireCamera, tapToFrameCoords, CameraUnavailableError, type CameraHandle } from '../sensors/camera';
 import { gravity, calibration as gravityCalibration } from '../sensors/gravity';
-import { frameRay, solveFloor, solveFovDeg, MAX_RANGE_M, type FloorSolution } from '../lib/rangefinder';
+import { frameRay, solveFloor, solveFovDeg, solveFovAndHeight, MAX_RANGE_M, type FloorSolution } from '../lib/rangefinder';
 import { capabilities, fingerprint } from '../lib/capabilities';
 import type { Vec3 } from '../lib/vec';
 import * as storage from '../lib/storage';
 
 /** Starting FOV before calibration. Nominal only — never presented as fact. */
 const NOMINAL_FOV_DEG = 65;
+/**
+ * Minimum radius from frame centre for a SINGLE-POINT calibration tap.
+ *
+ * At the exact centre the view ray IS the optical axis, whatever the field of
+ * view happens to be — so a lone centre tap carries no information about FOV
+ * and the solver has nothing to fit. This is a trap rather than an edge case,
+ * because centring the target is precisely what someone aiming a camera does
+ * by reflex. Measurement taps are unaffected, and the two-point fit judges
+ * itself by conditioning instead.
+ */
+const MIN_CAL_RADIUS = 0.25;
+
 /** 1σ on the FOV: wide until measured, tight once solved against a tape. */
 const FOV_SIGMA_UNCALIBRATED = 8;
-const FOV_SIGMA_CALIBRATED = 1;
+/** Fallback 1σ for a single-point fit, which cannot measure its own conditioning. */
+const FOV_SIGMA_ONE_POINT = 2;
 
 const DEFAULT_HEIGHT_M = 1.4;   // chest height, per §8.6
 
@@ -47,9 +60,17 @@ export class RangefinderInstrument extends Instrument {
   private height = storage.load<number>('rangefinder:height', DEFAULT_HEIGHT_M);
   private fovDeg = NOMINAL_FOV_DEG;
   private fovCalibrated = false;
+  /** Measured 1σ on the calibrated FOV. Set by whichever calibration ran. */
+  private fovSigma = FOV_SIGMA_UNCALIBRATED;
   private pins: Pin[] = [];
-  private calibrating = false;
+  /**
+   * off      — measuring
+   * one      — single-point: solve FOV, trusting the entered height
+   * twoA/twoB — two-point: solve FOV and height together
+   */
+  private calMode: 'off' | 'one' | 'twoA' | 'twoB' = 'off';
   private calibrationTarget = 2.0;
+  private pointA: { u: number; v: number; gDown: Vec3; distance: number } | null = null;
 
   /**
    * Calibration is keyed by capability fingerprint AND orientation, never by
@@ -66,6 +87,9 @@ export class RangefinderInstrument extends Instrument {
     const stored = storage.load<number | null>(this.fovKey, null);
     this.fovCalibrated = stored !== null;
     this.fovDeg = stored ?? NOMINAL_FOV_DEG;
+    this.fovSigma = stored === null
+      ? FOV_SIGMA_UNCALIBRATED
+      : storage.load<number>(this.fovKey + ':sigma', FOV_SIGMA_ONE_POINT);
   }
 
   protected async build(root: HTMLElement): Promise<void> {
@@ -156,30 +180,51 @@ export class RangefinderInstrument extends Instrument {
       else dInput.value = String(this.calibrationTarget);
     });
 
-    const btnCal = el('button', { class: 'btn', type: 'button' }, 'Start calibration');
-    const btnReset = el('button', { class: 'btn btn--alt', type: 'button' }, 'Reset FOV');
+    const btnCal = el('button', { class: 'btn', type: 'button' }, 'Calibrate FOV only');
+    const btnCal2 = el('button', { class: 'btn', type: 'button' }, 'Calibrate FOV + height');
+    const btnReset = el('button', { class: 'btn btn--alt', type: 'button' }, 'Reset calibration');
 
     const renderCal = () => {
       clear(calBox);
       append(calBox, notice(
         this.fovCalibrated ? 'ok' : 'warn',
         this.fovCalibrated
-          ? `<strong>Calibrated.</strong> Effective horizontal FOV ${this.fovDeg.toFixed(2)}° for this browser and orientation. Stored against the capability fingerprint, not the user-agent string — Safari and WKWebView may crop the stream differently.`
-          : `<strong>Uncalibrated.</strong> Running on a nominal ${NOMINAL_FOV_DEG}° field of view, which is a guess. FOV is the dominant error source here and <code>getUserMedia</code> may crop relative to the native camera, so the uncertainty band below carries ±${FOV_SIGMA_UNCALIBRATED}° of FOV ignorance. Measure a real distance with a tape, enter it, and tap that point.`));
-      if (this.calibrating) {
+          ? `<strong>Calibrated.</strong> Effective horizontal FOV ${this.fovDeg.toFixed(2)}° ±${this.fovSigma.toFixed(1)}° for this browser and orientation. That uncertainty is measured, not assumed: it is how far the fit moves when the input distances are perturbed by 1%. Stored against the capability fingerprint, not the user-agent string — Safari and WKWebView may crop the stream differently.`
+          : `<strong>Uncalibrated.</strong> Running on a nominal ${NOMINAL_FOV_DEG}° field of view, which is a guess. FOV is the dominant error source here and <code>getUserMedia</code> may crop relative to the native camera, so the uncertainty band below carries ±${FOV_SIGMA_UNCALIBRATED}° of FOV ignorance. ` +
+            '<strong>Prefer the two-point calibration.</strong> A single known distance cannot separate field of view from camera height — a reading 12% low is explained equally well by either — so a one-point fit reads perfectly at its own calibration distance and wrongly at every other one. Two points at different distances solve for both.'));
+      if (this.calError) append(calBox, notice('bad', this.calError));
+      if (this.calMode === 'one') {
         append(calBox, notice('warn',
-          `<strong>Calibrating.</strong> Tap exactly where the object at ${this.calibrationTarget.toFixed(2)} m meets the floor. Hold the phone at the height entered above.`));
+          `<strong>Single-point calibration.</strong> Tap exactly where the object at ${this.calibrationTarget.toFixed(2)} m meets the floor. This solves for field of view <em>assuming the entered height is correct</em> — if it is not, the reading will be exact here and wrong everywhere else.`));
+      } else if (this.calMode === 'twoA') {
+        append(calBox, notice('warn',
+          `<strong>Two-point calibration, first point.</strong> Set the distance above to your nearer target and tap where it meets the floor. Currently ${this.calibrationTarget.toFixed(2)} m. ` +
+          'Frame this one <em>low</em>, near the bottom edge. The second should sit much closer to the middle: it is the difference in where they fall in the frame that separates field of view from height, so keep the phone at a similar tilt for both and let the framing differ. Do not change how high you hold the phone.'));
+      } else if (this.calMode === 'twoB') {
+        append(calBox, notice('warn',
+          `<strong>Two-point calibration, second point.</strong> First point captured at ${this.pointA?.distance.toFixed(2)} m. Now set the distance above to your further target — at least 1.6× the first — and tap where <em>it</em> meets the floor, holding the phone at the same height.`));
       }
     };
 
     btnCal.addEventListener('click', () => {
-      this.calibrating = !this.calibrating;
-      btnCal.textContent = this.calibrating ? 'Cancel calibration' : 'Start calibration';
+      this.calMode = this.calMode === 'one' ? 'off' : 'one';
+      this.calError = null;
+      this.pointA = null;
+      renderCal();
+    });
+    btnCal2.addEventListener('click', () => {
+      this.calMode = this.calMode === 'off' ? 'twoA' : 'off';
+      this.calError = null;
+      this.pointA = null;
       renderCal();
     });
     btnReset.addEventListener('click', () => {
       storage.remove(this.fovKey);
+      storage.remove(this.fovKey + ':sigma');
       this.loadFov();
+      this.calMode = 'off';
+      this.calError = null;
+      this.pointA = null;
       this.pins = [];
       renderCal();
     });
@@ -189,9 +234,12 @@ export class RangefinderInstrument extends Instrument {
       calBox,
       el('div', { class: 'rf__row' },
         el('label', { class: 'rf__label', text: 'Known distance (m)' }), dInput),
-      el('div', { class: 'btn-row' }, btnCal, btnReset));
+      el('div', { class: 'btn-row' }, btnCal2, btnCal, btnReset));
     renderCal();
-    this.onCalibrated = renderCal;
+    this.onCalibrated = () => {
+      hInput.value = this.height.toFixed(2);
+      renderCal();
+    };
 
     append(scroll, notice('warn',
       `<strong>Accuracy degrades as 1/tanθ.</strong> Good to a few percent from about 0.5–5 m; the uncertainty band widens sharply beyond that and readings past ${MAX_RANGE_M} m are refused outright rather than shown as a number you might believe. The floor must actually be flat and level — a slope invalidates the whole derivation.`));
@@ -237,7 +285,7 @@ export class RangefinderInstrument extends Instrument {
       rHeight.set(fmt(this.height, 2), this.settled ? 'device steady' : 'device moving — hold still');
       rHeight.setState(this.settled ? 'ok' : 'warn');
       rFov.set(fmt(this.fovDeg, 1),
-        this.fovCalibrated ? `calibrated ±${FOV_SIGMA_CALIBRATED}°` : `nominal ±${FOV_SIGMA_UNCALIBRATED}° — not measured`);
+        this.fovCalibrated ? `calibrated ±${fmt(this.fovSigma, 1)}° (measured)` : `nominal ±${FOV_SIGMA_UNCALIBRATED}° — not measured`);
       rFov.setState(this.fovCalibrated ? 'ok' : 'warn');
 
       this.drawOverlay(octx, r.width, r.height, stage);
@@ -245,6 +293,7 @@ export class RangefinderInstrument extends Instrument {
   }
 
   private onCalibrated: () => void = () => {};
+  private calError: string | null = null;
 
   private onTap(clientX: number, clientY: number, stage: HTMLElement): void {
     const cam = this.cam;
@@ -258,19 +307,100 @@ export class RangefinderInstrument extends Instrument {
 
     const aspect = fh / fw;
 
-    if (this.calibrating) {
-      const fov = solveFovDeg(coords.u, coords.v, g, this.height, this.calibrationTarget, aspect);
-      if (fov === null) {
-        // Nothing sensible to store; tell the user rather than silently fail.
-        this.calibrating = false;
+    // Single-point only. A centre tap is useless on its own, because the ray
+    // there is the optical axis whatever the field of view is — but as one of
+    // a PAIR it is perfectly good: the off-centre tap carries the lens
+    // information while the central one pins tilt and height. What the two-
+    // point fit needs is that the taps DIFFER, and its conditioning check
+    // measures that directly and better than any per-tap rule could.
+    if (this.calMode === 'one') {
+      const radius = Math.hypot(coords.u, coords.v);
+      if (radius < MIN_CAL_RADIUS) {
+        this.calError =
+          `That tap is too close to the centre of the frame (${radius.toFixed(2)} from centre, need ${MIN_CAL_RADIUS}). ` +
+          'At the centre the view ray is the optical axis no matter what the field of view is, so a lone tap there tells the solver nothing about it. ' +
+          'Re-aim so the target sits well away from the middle — near the bottom of the frame is natural for a floor point — and tap again.';
         this.onCalibrated();
         return;
       }
+    }
+
+    // Single-point only. A centre tap is useless on its own, because the ray
+    // there is the optical axis whatever the field of view is — but as one of
+    // a PAIR it is perfectly good: the off-centre tap carries the lens
+    // information while the central one pins tilt and height. What the two-
+    // point fit needs is that the taps DIFFER, and its conditioning check
+    // measures that directly and better than any per-tap rule could.
+    if (this.calMode === 'one') {
+      const radius = Math.hypot(coords.u, coords.v);
+      if (radius < MIN_CAL_RADIUS) {
+        this.calError =
+          `That tap is too close to the centre of the frame (${radius.toFixed(2)} from centre, need ${MIN_CAL_RADIUS}). ` +
+          'At the centre the view ray is the optical axis no matter what the field of view is, so a lone tap there tells the solver nothing about it. ' +
+          'Re-aim so the target sits well away from the middle — near the bottom of the frame is natural for a floor point — and tap again.';
+        this.onCalibrated();
+        return;
+      }
+    }
+
+    if (this.calMode === 'one') {
+      const fov = solveFovDeg(coords.u, coords.v, g, this.height, this.calibrationTarget, aspect);
+      this.calMode = 'off';
+      if (fov === null) { this.calError = 'No field of view in range fits that tap. Check the height and the distance, and tap exactly where the object meets the floor.'; this.onCalibrated(); return; }
       this.fovDeg = fov;
       this.fovCalibrated = true;
+      this.fovSigma = FOV_SIGMA_ONE_POINT;
       storage.save(this.fovKey, fov);
-      this.calibrating = false;
+      storage.save(this.fovKey + ':sigma', FOV_SIGMA_ONE_POINT);
       this.pins = [];
+      this.calError = null;
+      this.onCalibrated();
+      return;
+    }
+
+    if (this.calMode === 'twoA') {
+      this.pointA = { u: coords.u, v: coords.v, gDown: g, distance: this.calibrationTarget };
+      this.calMode = 'twoB';
+      this.calError = null;
+      this.onCalibrated();
+      return;
+    }
+
+    if (this.calMode === 'twoB') {
+      const a = this.pointA!;
+      const b = { u: coords.u, v: coords.v, gDown: g, distance: this.calibrationTarget };
+      this.calMode = 'off';
+      // No distance-ratio rule here. It was a proxy for conditioning, and a
+      // poor one: what actually determines whether the fit can separate field
+      // of view from height is how differently the two taps fall in the FRAME,
+      // not how far apart the targets are. The fit measures its own
+      // conditioning directly, which is both stricter and correct.
+      const fit = solveFovAndHeight(a, b, aspect);
+      if (!fit) {
+        this.calError = 'No field of view and height pair fits those two taps. Most likely the phone moved vertically between them, or a tap missed the point where the object meets the floor.';
+        this.onCalibrated();
+        return;
+      }
+      if (!fit.wellConditioned) {
+        // Refuse rather than store it. A calibration no better than the guess
+        // it replaces, presented as a calibration, is worse than no
+        // calibration at all — it looks trustworthy.
+        this.calError =
+          `Those two taps do not constrain the optics: a 1% error in either distance moves the fitted field of view by ±${Number.isFinite(fit.fovSensitivity) ? fit.fovSensitivity.toFixed(1) : '∞'}°, which is no better than the uncalibrated guess. ` +
+          'The field-of-view information comes from the two taps sitting at different places <em>in the frame</em>, not from the phone being tilted differently between them — tilt changes the angle without exercising the lens. ' +
+          'Keep the phone at roughly the same tilt for both, and pick targets that land near the bottom edge and nearer the middle of the frame.';
+        this.onCalibrated();
+        return;
+      }
+      this.fovDeg = fit.fovDeg;
+      this.height = fit.height;
+      this.fovCalibrated = true;
+      this.fovSigma = Math.max(fit.fovSensitivity, 0.5);
+      storage.save(this.fovKey, fit.fovDeg);
+      storage.save(this.fovKey + ':sigma', this.fovSigma);
+      storage.save('rangefinder:height', fit.height);
+      this.pins = [];
+      this.calError = null;
       this.onCalibrated();
       return;
     }
@@ -281,9 +411,8 @@ export class RangefinderInstrument extends Instrument {
     // Propagate FOV uncertainty numerically rather than analytically: solve at
     // fov ± σ and take half the spread. Robust, and it stays correct if the
     // ray construction ever changes.
-    const fovSigma = this.fovCalibrated ? FOV_SIGMA_CALIBRATED : FOV_SIGMA_UNCALIBRATED;
-    const lo = this.solveAt(coords.u, coords.v, g, aspect, this.fovDeg - fovSigma);
-    const hi = this.solveAt(coords.u, coords.v, g, aspect, this.fovDeg + fovSigma);
+    const lo = this.solveAt(coords.u, coords.v, g, aspect, this.fovDeg - this.fovSigma);
+    const hi = this.solveAt(coords.u, coords.v, g, aspect, this.fovDeg + this.fovSigma);
     const fovErr = lo && hi ? Math.abs(lo.horizontal - hi.horizontal) / 2 : sol.horizontal;
     const sigma = Math.hypot(sol.sigma, fovErr);
 
@@ -347,14 +476,15 @@ export class RangefinderInstrument extends Instrument {
       ctx.fillText(label, bx + 5, y + 16);
     });
 
-    if (this.calibrating) {
+    if (this.calMode !== 'off') {
       ctx.fillStyle = '#cc669955';
       ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = '#ffcc66';
       ctx.font = "700 14px 'Antonio', sans-serif";
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText(`TAP THE POINT AT ${this.calibrationTarget.toFixed(2)} m`, w / 2, 10);
+      const label = this.calMode === 'twoB' ? 'SECOND POINT' : this.calMode === 'twoA' ? 'FIRST POINT' : 'CALIBRATE';
+      ctx.fillText(`${label} — TAP AT ${this.calibrationTarget.toFixed(2)} m`, w / 2, 10);
     }
   }
 }
