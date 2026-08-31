@@ -31,6 +31,7 @@
 import { Instrument } from '../ui/screen';
 import { el, append, readout, autoCanvas, fmt, section, notice, clear } from '../ui/dom';
 import { residual, resetFilters, type ResidualSample } from '../sensors/residual';
+import { angleDelta } from '../lib/vec';
 
 /** Above this webkitCompassAccuracy the heading wanders more than a magnet moves it. */
 const MAX_USABLE_ACCURACY = 20;
@@ -79,6 +80,21 @@ export class MagneticInstrument extends Instrument {
   private peakIndex = 0;
   private sample: ResidualSample | null = null;
   private baseAccuracy: number | null = null;
+  /**
+   * Raw heading bookkeeping.
+   *
+   * The index is a derived quantity two transforms away from the sensor, so a
+   * flat index has several possible causes and they are not distinguishable
+   * from the index alone. The heading is the last observable before iOS's
+   * fusion hands anything over: if it does not move, nothing downstream can,
+   * and the cause is upstream of this app entirely.
+   */
+  private headingRef: number | null = null;
+  private headingDev = 0;
+  private headingPeakDev = 0;
+  private headingChanges = 0;
+  private lastHeadingValue: number | null = null;
+  private lastHeadingChangeAt = 0;
   private trace: Array<{ index: number; acc: number }> = [];
   private events: Event[] = [];
   private inEvent: Event | null = null;
@@ -122,6 +138,19 @@ export class MagneticInstrument extends Instrument {
 
     append(scroll, section('Corroboration'),
       el('div', { class: 'grid' }, rAcc.node, rAccDelta.node, rYaw.node));
+
+    // --- raw compass ------------------------------------------------------
+    const rHeading = readout('Compass heading', { unit: '°', note: 'raw webkitCompassHeading' });
+    const rHeadDev = readout('Heading deviation', { unit: '°', note: 'from where the floor was learned' });
+    const rHeadPeak = readout('Peak deviation', { unit: '°', note: '' });
+
+    append(scroll, section('Raw compass — is iOS passing anything through?'),
+      el('div', { class: 'grid' }, rHeading.node, rHeadDev.node, rHeadPeak.node),
+      notice('warn',
+        '<strong>Read this first when the index stays flat.</strong> The heading is the last value before iOS\'s sensor fusion hands anything to the browser. ' +
+        'If peak deviation stays at zero while a magnet is right against the phone, the disturbance is being rejected upstream of this app and no amount of maths here can recover it — ' +
+        'check Apple\'s own Compass app to confirm, since it reads the same fused source. ' +
+        'If the heading <em>does</em> move but the index does not, that is a bug here and worth reporting.'));
 
     // --- controls ----------------------------------------------------------
     const btnReset = el('button', { class: 'btn', type: 'button' }, 'Re-learn noise floor');
@@ -215,6 +244,18 @@ export class MagneticInstrument extends Instrument {
         this.inEvent = null;
       }
 
+      // Raw heading tracking, independent of the residual chain.
+      if (s.heading !== null) {
+        if (s.heading !== this.lastHeadingValue) {
+          if (this.lastHeadingValue !== null) this.headingChanges++;
+          this.lastHeadingValue = s.heading;
+          this.lastHeadingChangeAt = s.t;
+        }
+        if (this.headingRef === null) this.headingRef = s.heading;
+        this.headingDev = angleDelta(s.heading, this.headingRef);
+        this.headingPeakDev = Math.max(this.headingPeakDev, Math.abs(this.headingDev));
+      }
+
       this.trace.push({ index: this.index, acc: s.accuracy ?? 0 });
       if (this.trace.length > TRACE_N) this.trace.shift();
     });
@@ -297,6 +338,27 @@ export class MagneticInstrument extends Instrument {
         rFloor.setState('ok');
       }
 
+      // Raw compass readouts — deliberately outside the readiness gate, because
+      // when the gate is closed these are the numbers that explain why.
+      if (s && s.heading !== null) {
+        const sinceChange = s.t - this.lastHeadingChangeAt;
+        rHeading.set(fmt(s.heading, 1),
+          `${this.headingChanges} updates · last ${sinceChange < 60 ? `${fmt(sinceChange, 1)} s ago` : 'a while ago'}`);
+        rHeading.setState(this.headingChanges > 0 ? 'ok' : 'warn');
+        rHeadDev.set(this.headingRef === null ? '—' : fmt(this.headingDev, 1),
+          this.headingRef === null ? 'no reference yet' : `reference ${fmt(this.headingRef, 1)}°`);
+        rHeadPeak.set(fmt(this.headingPeakDev, 1),
+          this.headingPeakDev > 5 ? 'the compass IS seeing something'
+          : this.headingPeakDev > 1 ? 'small movement only'
+          : 'NOTHING — iOS is passing no disturbance through');
+        rHeadPeak.setState(this.headingPeakDev > 5 ? 'ok' : this.headingPeakDev > 1 ? 'warn' : 'bad');
+      } else {
+        rHeading.set('—', 'webkitCompassHeading absent');
+        rHeading.setState('bad');
+        rHeadDev.set('—');
+        rHeadPeak.set('—');
+      }
+
       rPeak.set(this.peakIndex > 0 ? fmt(this.peakIndex, 0) : '—');
       rPeak.setState(this.peakIndex >= ALERT_SIGMA ? 'warn' : 'idle');
 
@@ -334,6 +396,11 @@ export class MagneticInstrument extends Instrument {
     this.index = 0;
     this.peakIndex = 0;
     this.baseAccuracy = null;
+    this.headingRef = null;
+    this.headingDev = 0;
+    this.headingPeakDev = 0;
+    this.headingChanges = 0;
+    this.lastHeadingValue = null;
     this.trace = [];
     this.inEvent = null;
   }
