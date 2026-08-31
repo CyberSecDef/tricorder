@@ -35,6 +35,20 @@ const DETREND_TAU = 25;
 const MIN_SWEEP_DEG = 90;
 /** A run must be at least this long to be worth comparing. */
 const MIN_RUN_S = 4;
+/**
+ * Maximum webkitCompassAccuracy for a run to mean anything.
+ *
+ * This gate was added after a real dataset came back unusable. The compass
+ * reported ±89° of heading error — effectively uncalibrated — and the heading
+ * then wandered 60° on its own during a run with only 12° of physical
+ * rotation. That wander is indistinguishable from a magnetic anomaly, because
+ * in every sense that matters it IS one: the field the compass is reading does
+ * not match the field it was calibrated against. It swamps any deliberate
+ * disturbance by an order of magnitude.
+ */
+const MAX_USABLE_ACCURACY = 20;
+/** Runs whose accuracy differs by more than this were not measured alike. */
+const MAX_ACCURACY_DRIFT = 15;
 
 interface Sample {
   t: number;            // seconds since run start
@@ -187,6 +201,10 @@ export class MagProbeInstrument extends Instrument {
     append(scroll, resBox, accBox);
 
     // --- recording controls ----------------------------------------------
+    const rCalState = readout('Compass calibration', { unit: '°', note: '', wide: true });
+    const calGate = el('div');
+    append(scroll, section('Compass readiness'), rCalState.node, calGate);
+
     const btnBase = el('button', { class: 'btn', type: 'button' }, 'Record baseline');
     const btnDist = el('button', { class: 'btn btn--alt', type: 'button' }, 'Record disturbed');
     const btnStop = el('button', { class: 'btn btn--warn', type: 'button' }, 'Stop');
@@ -225,6 +243,8 @@ export class MagProbeInstrument extends Instrument {
     btnDist.addEventListener('click', () => startRun('disturbed'));
     btnStop.addEventListener('click', stopRun);
     btnCopy.addEventListener('click', () => void this.copyResults(btnCopy));
+
+    let gateShown: boolean | null = null;
 
     const renderStatus = () => {
       clear(recStatus);
@@ -386,11 +406,42 @@ export class MagProbeInstrument extends Instrument {
           : `${this.headingChanges} distinct heading values seen`);
       rEvents.setState(this.orientHz >= 5 ? 'ok' : this.orientHz >= 1 ? 'warn' : 'bad');
 
+      // Compass readiness gate. Nothing recorded above the accuracy threshold
+      // is worth analysing, so say so before the run rather than after.
+      const ready = this.accuracy >= 0 && this.accuracy <= MAX_USABLE_ACCURACY;
+      rCalState.set(this.accuracy < 0 ? 'INVALID' : `±${fmt(this.accuracy, 0)}`,
+        this.accuracy < 0
+          ? 'webkitCompassAccuracy is negative — the heading is not valid at all'
+          : ready
+            ? 'good enough to record'
+            : `TOO HIGH — needs ≤ ${MAX_USABLE_ACCURACY}°. The heading will wander on its own by more than any magnet moves it.`);
+      rCalState.setState(this.accuracy < 0 ? 'bad' : ready ? 'ok' : 'bad');
+      if (!this.recording) {
+        btnBase.disabled = !ready;
+        btnDist.disabled = !ready;
+      }
+      if (gateShown !== ready) {
+        gateShown = ready;
+        clear(calGate);
+        if (!ready) {
+          append(calGate, notice('bad',
+            '<strong>Compass not calibrated — recording is blocked.</strong> ' +
+            'Wave the phone in a figure-eight, rotating it through all three axes, for ten to fifteen seconds. Watch the number above fall. ' +
+            `iOS recalibrates the magnetometer from that motion, and until it does the heading drifts on its own by tens of degrees — which is indistinguishable from the anomaly we are trying to detect, and far larger.`));
+        }
+      }
+
       rSign.set(this.sign > 0 ? '+1' : '−1',
         `auto-estimated · confidence ${Math.min(100, Math.abs(this.signEvidence) / 4).toFixed(0)}%`);
       rSign.setState(Math.abs(this.signEvidence) > 100 ? 'ok' : 'warn');
-      rRot.set(this.recording ? fmt(this.rotated - (this.buffer[0]?.rotated ?? this.rotated), 0) : fmt(this.rotated, 0),
-        this.recording ? `need ≥ ${MIN_SWEEP_DEG}°` : 'idle');
+      const runRot = this.recording ? this.rotated - (this.buffer[0]?.rotated ?? this.rotated) : 0;
+      rRot.set(this.recording ? fmt(runRot, 0) : '—',
+        this.recording
+          ? runRot >= MIN_SWEEP_DEG
+            ? `${MIN_SWEEP_DEG}° reached — you can stop`
+            : `${fmt(MIN_SWEEP_DEG - runRot, 0)}° still to go, keep turning`
+          : `each run needs ≥ ${MIN_SWEEP_DEG}° of yaw`);
+      rRot.setState(!this.recording ? 'idle' : runRot >= MIN_SWEEP_DEG ? 'ok' : 'warn');
 
       this.drawTrace(resScope, (s) => s.residual, '#ffcc66', 'symmetric');
       this.drawTrace(accScope, (s) => s.accuracy, '#cc99ff', 'positive');
@@ -506,6 +557,15 @@ export class MagProbeInstrument extends Instrument {
     }
     if (b.duration < MIN_RUN_S || d.duration < MIN_RUN_S) {
       problems.push(`One or both runs are shorter than ${MIN_RUN_S} s.`);
+    }
+    if (b.accuracyMean > MAX_USABLE_ACCURACY || d.accuracyMean > MAX_USABLE_ACCURACY) {
+      problems.push(
+        `Compass accuracy averaged ${b.accuracyMean.toFixed(0)}° and ${d.accuracyMean.toFixed(0)}° (need ≤ ${MAX_USABLE_ACCURACY}°). ` +
+        'At that error the heading wanders by more than any magnet moves it, so the residual is measuring the compass, not the field. Calibrate with a figure-eight and repeat.');
+    }
+    if (Math.abs(b.accuracyMean - d.accuracyMean) > MAX_ACCURACY_DRIFT) {
+      problems.push(
+        `Compass accuracy differed by ${Math.abs(b.accuracyMean - d.accuracyMean).toFixed(0)}° between the runs, which means iOS was still recalibrating the magnetometer partway through. The two runs were not measured under the same conditions.`);
     }
     const rotRatio = Math.max(b.rotated, d.rotated) / Math.max(1, Math.min(b.rotated, d.rotated));
     if (rotRatio > 2) {
