@@ -64,6 +64,8 @@ type Dtype = (typeof DTYPES)[number];
 const SIZES = [196, 252, 350, 518] as const;   // 14 × {14, 18, 25, 37}
 /** The model's own default, for reference in the UI. */
 const NATIVE_SIZE = 518;
+/** Minimum interval between inferences, ms — caps the loop at ~15 fps. */
+const MIN_FRAME_MS = 66;
 /** Smoothing for the normalisation bounds. Low and slow — this is the anti-flicker. */
 const BOUNDS_ALPHA = 0.08;
 
@@ -89,6 +91,18 @@ export class DepthInstrument extends Instrument {
   private display: HTMLCanvasElement | null = null;
 
   private depth: Float32Array | null = null;
+  /**
+   * Our own copy of the latest depth map.
+   *
+   * The pipeline's output tensor must be disposed after every inference, and
+   * on WebGPU that matters more than it looks: output tensors can be
+   * GPU-backed, and GPU memory is not managed by the JavaScript garbage
+   * collector. Holding a reference to `tensor.data` and letting the tensor
+   * fall out of scope leaks a GPU buffer per frame — at ten frames a second
+   * that is how a tab gets killed by WKWebView for memory. So: copy into this
+   * reused buffer, then dispose.
+   */
+  private depthBuf: Float32Array | null = null;
   private depthW = 0;
   private depthH = 0;
   private loEMA: number | null = null;
@@ -214,6 +228,15 @@ export class DepthInstrument extends Instrument {
       this.fps = this.inferCount / Math.max(0.001, (now - fpsTick) / 1000);
       this.inferCount = 0;
       fpsTick = now;
+      // Painted here rather than in the render loop, which pauses when the
+      // page is hidden. Updating from the interval means the readout tells the
+      // truth about a paused pipeline instead of freezing on its last value
+      // and implying work that is not happening.
+      rFps.set(this.fps ? fmt(this.fps, 1) : '0.0',
+        !this.pipe ? 'model not loaded'
+          : document.visibilityState !== 'visible' ? 'paused — page not visible'
+          : '');
+      rFps.setState(!this.pipe ? 'idle' : this.fps > 0 ? 'ok' : 'warn');
     });
 
     let lastStatus = '';
@@ -245,7 +268,6 @@ export class DepthInstrument extends Instrument {
         this.inferMs
           ? `model ${fmt(this.modelMs, 0)} + frame ${fmt(this.prepMs, 0)} · ${this.inputSize}px ${this.dtype}`
           : `${this.inputSize}×${this.inputSize} · ${this.dtype}`);
-      rFps.set(this.fps ? fmt(this.fps, 1) : '—', this.pipe ? '' : 'model not loaded');
       rRange.set(this.loEMA === null ? '—' : `${fmt(this.loEMA, 2)} … ${fmt(this.hiEMA!, 2)}`,
         'relative inverse depth — unitless');
 
@@ -278,6 +300,8 @@ export class DepthInstrument extends Instrument {
     const p = this.pipe;
     this.pipe = null;
     this.depth = null;
+    this.depthBuf = null;
+    this.imageData = null;
     this.loEMA = this.hiEMA = null;
     this.inferMs = 0;
     try { p?.dispose?.(); } catch { /* nothing useful to do */ }
@@ -344,6 +368,12 @@ export class DepthInstrument extends Instrument {
   private async inferenceLoop(RawImage: any): Promise<void> {
     const ctx = this.work.getContext('2d', { willReadFrequently: true })!;
     while (this.running && this.isMounted && this.pipe && this.cam) {
+      // Do not infer into a backgrounded tab. iOS is aggressive about
+      // reclaiming memory from hidden pages, and running a camera plus
+      // continuous GPU inference while invisible is a good way to be killed —
+      // for work nobody can see.
+      if (document.visibilityState !== 'visible') { await sleep(250); continue; }
+
       const video = this.cam.video;
       if (!video.videoWidth) { await sleep(100); continue; }
 
@@ -362,10 +392,20 @@ export class DepthInstrument extends Instrument {
         if (t?.data && t?.dims?.length >= 2) {
           const h = t.dims[t.dims.length - 2];
           const w = t.dims[t.dims.length - 1];
-          this.depth = t.data as Float32Array;
+          const src = t.data as Float32Array;
+          if (!this.depthBuf || this.depthBuf.length !== src.length) {
+            this.depthBuf = new Float32Array(src.length);
+          }
+          this.depthBuf.set(src);
+          this.depth = this.depthBuf;
           this.depthW = w;
           this.depthH = h;
           this.updateBounds(this.depth);
+        }
+        // Free the tensor explicitly rather than leaving it to the collector,
+        // which does not know about GPU buffers at all.
+        for (const key of ['predicted_depth', 'depth']) {
+          try { (res as any)?.[key]?.dispose?.(); } catch { /* nothing to do */ }
         }
         this.inferMs = performance.now() - t0;
         this.inferCount++;
@@ -374,8 +414,11 @@ export class DepthInstrument extends Instrument {
         this.running = false;
         return;
       }
-      // Yield so the render loop and the UI actually get a turn.
-      await sleep(0);
+      // Cap the rate. Beyond about fifteen frames a second there is nothing to
+      // see on a depth map, and running flat out just multiplies the
+      // per-frame allocation churn and the thermal load for no benefit.
+      const spare = MIN_FRAME_MS - (performance.now() - t0);
+      await sleep(spare > 0 ? spare : 0);
     }
   }
 
