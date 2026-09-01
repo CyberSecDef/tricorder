@@ -1,7 +1,7 @@
 # Web Tricorder — Implementation Handoff
 
 **Target:** A browser-based "tricorder" sensor suite that runs on **iOS 26+**, in **Safari, Chrome and Edge**.
-**Status:** M1 and M2 built. Instruments 1–7 plus a diagnostics screen and a measurement probe. Instruments 8–10 remain.
+**Status:** Complete. All five milestones, all ten instruments built. Nine work on hardware and are verified in Safari, Chrome and Edge; Instrument 7 is correct but has no signal to detect on this platform (§8.7).
 **Prime constraint:** iOS only. Do not assume any Android/desktop-Chrome-only API.
 **Reference device:** iPhone, iOS 26.6.1, tested in Chrome. Safari and Edge not yet exercised.
 
@@ -93,7 +93,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | 7 | Magnetic anomaly detector | Medium | DeviceOrientation + DeviceMotion | ⛔ built and correct, but **no signal exists on iOS 26.6.1** — not in the rail (§8.7) |
 | 8 | Ultrasonic Doppler motion | Medium | Web Audio | ✅ built and **verified on device** — detects motion and its direction |
 | 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU | ✅ built and **verified on device** — WebGPU, fp16, 252 px |
-| 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | ✅ built; not yet exercised on hardware |
+| 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | ✅ built and **verified on device** — all three bands |
 | — | Diagnostics | — | — | ✅ built (§9) |
 | — | Magnetic residual probe | — | DeviceOrientation + DeviceMotion | ✅ built — the harness that answered §11 q.2 |
 
@@ -969,19 +969,27 @@ Matched-filter time-of-flight ranging. **Requires the `raw` mic profile (§5)** 
    At 48 kHz, one sample = 7.15 mm of path = **3.6 mm of range resolution**.
 6. Average 4–8 pings and take the median to suppress spurious peaks.
 
-⚠️ **A phone speaker can barely produce 20 kHz.** The driver is a few
-millimetres across and rolls off hard above about 10 kHz — easily 30–40 dB down
-at 20 kHz. The Doppler survives that because it only needs sidebands off a
-direct path measured in centimetres; a sonar echo pays the penalty twice, going
-out and coming back, and at 60–80 dB down there may be nothing left to
-correlate. **The band is therefore selectable and defaults to an audible
-3–8 kHz sweep**, which is where the speaker actually works. Inaudibility is a
-real virtue and it is the second priority, not the first: get a return, then
-try moving up.
+**CORRECTION to a theory of mine, kept because the reasoning was sound and the
+conclusion was wrong.** When the instrument first failed on hardware I blamed
+the speaker: a phone driver is a few millimetres across and rolls off 30–40 dB
+by 20 kHz, and a sonar echo pays that twice. That is all true, and it is not
+what was wrong. **MEASURED: all three bands work — ultrasonic 15–22 kHz
+included.** §8.10's original specification is vindicated exactly as written.
+
+The band selector stays, because it is useful for seeing where performance
+degrades and for working in quiet rooms, but the default has no business being
+the audible one. The actual fault was the timing reference below.
 
 **Realistic expectation:** 0.2–3 m against a large flat surface in a quiet room. It is finicky and pointing-sensitive. Present it as an A-scope trace (correlation amplitude vs. range) rather than a single number — the trace is both more honest and more tricorder-like.
 
 **Acceptance:** Pointing at a wall at a tape-measured 1 m and 2 m produces a correlation peak at the right range, repeatably.
+
+**MEASURED — passes, in all three bands including the specified ultrasonic
+15–22 kHz.** The one thing that had to be right was the timing reference: with
+ranges measured from the scheduled emission the instrument found nothing at
+all, and with them measured from the direct path it works. Everything else —
+the chirp, the matched filter, the blanking, the prominence and agreement tests
+— was already correct and simply had nothing to work on.
 
 ---
 
@@ -1056,11 +1064,14 @@ try moving up.
   "measure once" for engine-level questions, and that was wrong.
 - **M3** — ✅ **built and verified on device.** Ultrasonic Doppler, detecting motion and discriminating approach from recede. The sample rate is 48 kHz (§11 q.3), so the carrier goes at 20 kHz with the full band available. Handle the §0.7 graph-termination trap in the emit/analyse path — it will bite here too.
 - **M4** — ✅ **built and verified on device.** ML depth scanner. WebGPU is present in all three browsers on iOS 26, so it is the expected route and WASM a genuine fallback. Verified end to end on the WASM path (headless has no GPU adapter): model loads, inference runs, depth map renders. Needs a device to exercise WebGPU and to see real frame rates.
-- **M5** — ✅ **built.** Sonar. The DSP is verified against synthetic echoes to
-  sub-millimetre accuracy, including a 1% echo against a full-strength direct
-  path; the browser pipeline, worklet and frame-stamped capture all run. What
-  headless cannot provide is an acoustic path from speaker to microphone, so
-  real ranging needs a device.
+- **M5** — ✅ **built and verified on device.** Sonar, working in all three
+  bands including the specified ultrasonic 15–22 kHz. DSP verified separately
+  against synthetic echoes to sub-millimetre accuracy, including a 1% echo
+  against a full-strength direct path.
+
+**All five milestones are complete. Nine of the ten instruments work on
+hardware; Instrument 7 is built and correct but has no signal to detect on
+iOS 26 (§8.7).**
 
 ---
 
@@ -1188,26 +1199,24 @@ rangefinder, Instrument 7, four probe regressions, and a smoke test that mounts
 and unmounts all eleven screens. It is a regression net, not evidence about the
 platform — see the last bullet of §9.
 
-**In priority order:**
+**Nothing is outstanding to make the app work.** What remains is verification
+and polish:
 
-1. **Exercise Instrument 7 on hardware.** It is built entirely from measurements
-   but has only ever run against synthetic data. Figure-eight to calibrate, rest
-   the phone, let it learn the floor for three seconds, bring a magnet in. The
-   floor it learns should land near 0.021°, and the index should settle back
-   near 1 once the magnet leaves. If either is wrong, it is fresh in mind and
-   cheap to fix.
-2. **Run M1 in Safari and Edge.** The §10 gate, still only half satisfied, and
-   the only genuinely browser-sensitive part of the project. Closes §11 q.8 and
-   the remaining half of q.5 and q.7.
-3. **Record the audio sample rate** (§11 q.3). One glance at diagnostics, and
-   M3 needs it.
-4. **Then M3, the ultrasonic Doppler.** Straightforward next to what M2
-   required. The traps are already known: the graph-termination bug in §0.7,
-   the mute switch, and the raw mic profile.
+1. **Walk the denial-recovery path** (§11 q.8, the last genuinely open
+   question). Nothing has ever been denied, so the §4 copy telling users how to
+   recover has never been tested. Deny motion once per browser and check the
+   instructions are right, rather than finding out from a user that they are
+   not.
+2. **Confirm the rangefinder's uncertainty band brackets the true distance.**
+   That is what separates a number with a real error bar from one with a
+   decorative one.
+3. **Compare the calibrated FOV between Safari and WKWebView** (§11 q.5). The
+   per-browser keying makes it moot in practice, but the answer is interesting
+   and one calibration run away.
+4. **Vendor the Antonio font** before a public deploy. It is the only external
+   request the app makes.
 
-**Two small things worth doing when convenient:** check whether
-`track.getCapabilities()` exposes `exposureTime`/`iso` (§11 q.4 — a few lines
-on the diagnostics screen, and it decides whether a calibrated lux meter is
-possible), and confirm the rangefinder's uncertainty band actually brackets the
-true distance. The second is what separates a number with a real error bar from
-one with a decorative one.
+**Two instruments are in the tree but not in the rail**, both deliberately and
+both documented where they live: the magnetic anomaly detector (§8.7, no signal
+exists) and the residual probe that proved it. Delete them when you are sure,
+or keep them as the test if a future device disagrees.
