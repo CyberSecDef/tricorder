@@ -130,3 +130,55 @@ export function tapToFrameCoords(
     v: 1 - (fy / frameH) * 2,   // screen y grows downward; v grows upward
   };
 }
+
+/**
+ * Briefly acquire the camera, read what the track can do, and release it.
+ *
+ * Separate from `acquireCamera` because this is a question, not a session: it
+ * has no use for a <video> element and must not leave the privacy indicator
+ * lit for a moment longer than it takes to ask. Answers §11 q.4 — whether
+ * `exposureTime` and `iso` are exposed, which decides whether a genuinely
+ * calibrated lux meter is possible via L ≈ (N²/t)·(K/S), or only a relative
+ * light meter from mean frame luminance.
+ */
+export interface CameraProbe {
+  capabilities: Record<string, unknown>;
+  settings: Record<string, unknown>;
+  /** Keys the track reports as adjustable. */
+  keys: string[];
+  hasExposureTime: boolean;
+  hasIso: boolean;
+  hasTorch: boolean;
+}
+
+export async function probeCameraCapabilities(): Promise<CameraProbe> {
+  if (typeof navigator.mediaDevices?.getUserMedia !== 'function') {
+    throw new CameraUnavailableError('no-api', 'getUserMedia unavailable. Is this a secure context?');
+  }
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }, audio: false,
+    });
+  } catch (e) {
+    const err = e as DOMException;
+    const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
+    throw new CameraUnavailableError(denied ? 'denied' : 'failed',
+      denied ? 'Camera permission denied.' : `Camera unavailable: ${err?.name ?? e}`);
+  }
+
+  const track = stream.getVideoTracks()[0];
+  const capabilities = ((track as any).getCapabilities?.() ?? {}) as Record<string, unknown>;
+  const settings = (track?.getSettings?.() ?? {}) as Record<string, unknown>;
+  for (const t of stream.getTracks()) t.stop();
+
+  const keys = Object.keys(capabilities).sort();
+  return {
+    capabilities,
+    settings,
+    keys,
+    hasExposureTime: 'exposureTime' in capabilities,
+    hasIso: 'iso' in capabilities,
+    hasTorch: 'torch' in capabilities && Boolean((capabilities as any).torch),
+  };
+}

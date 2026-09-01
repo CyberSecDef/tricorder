@@ -899,9 +899,11 @@ Matched-filter time-of-flight ranging. **Requires the `raw` mic profile (§5)** 
 ## 10. Suggested milestones
 
 - **M1** — ✅ **built.** Boot gate + HTTPS serving + Geo + Compass + Seismograph + Spectrum, plus the diagnostics screen. This is a complete, useful app. **Verify M1 on Safari, Chrome and Edge before moving on** — the permission and secure-context paths are the only genuinely browser-sensitive parts of the whole project, and you want them proven early.
-  **⚠️ This gate is only half satisfied.** Everything has been verified in
-  **Chrome on iOS 26.6.1** and passes. Safari and Edge have never been opened.
-  That is the outstanding item before M3, and it also closes §11 q.8.
+  ✅ **Gate satisfied.** Verified in **Safari, Chrome and Edge** on iOS 26.6.1.
+  Everything built works in all three, which is the outcome §1 predicts —
+  they share one engine, and the differences are in permissions and
+  installability rather than in the API surface. No browser-specific code path
+  exists anywhere in the app, and none turned out to be needed.
 - **M2** — ✅ **built.** Floor-plane rangefinder with calibration flow, and the magnetic anomaly detector. Measure the Core Motion damping risk (Instrument 7) *early* — it is the one open technical question in this doc.
   The advice to measure early was correct and was followed: a dedicated probe
   screen was built before Instrument 7 existed, and answering q.2 first changed
@@ -954,33 +956,38 @@ Engine-level questions — measure once, the answer holds for all three browsers
    full 15–22 kHz; the narrowed 44.1 kHz variants are not needed on this
    device. Keep reading it at runtime regardless — it depends on the hardware
    and the active audio route, not on the app.
-4. ⬜ **STILL OPEN.** Whether `track.getCapabilities()` exposes `exposureTime` /
-   `iso` on this iOS version. If it does, a **calibrated lux meter** becomes
-   possible via `L ≈ (N²/t)·(K/S)` with fixed aperture N and K ≈ 12.5 — worth
-   adding as a bonus instrument. If not, ship a relative light meter from mean
-   frame luminance. Cheap to check: the camera is already acquired by
-   Instrument 6, so this is a few lines on the diagnostics screen.
+4. ⬜ **STILL OPEN, but now answerable in one tap.** Whether
+   `track.getCapabilities()` exposes `exposureTime` / `iso`. If it does, a
+   **calibrated lux meter** becomes possible via `L ≈ (N²/t)·(K/S)` with fixed
+   aperture N and K ≈ 12.5. If not, ship a relative light meter from mean frame
+   luminance. **Diagnostics → Camera capabilities → Probe camera capabilities**
+   asks the track directly, lists every key it reports, and states which of the
+   two meters is possible. The probe releases the camera immediately rather
+   than holding it. (For reference, desktop Chromium reports `exposureTime` but
+   not `iso`, so even there only a relative meter is possible.)
 
 Browser-level questions — check all three:
 
-5. 🟡 **PARTIALLY ANSWERED.** The real-world FOV is now measurable rather than
-   guessed — the two-point calibration in §8.6 recovers it along with the
-   camera height, and the result is stored keyed by capability fingerprint
-   *and* orientation. What remains unknown is whether Safari and WKWebView
-   actually differ, because only Chrome has been calibrated. The
-   infrastructure to answer it exists; it needs one calibration run in Safari
-   and a comparison of the stored values.
+5. 🟡 **MOSTLY ANSWERED.** The real-world FOV is measurable rather than guessed
+   — the two-point calibration in §8.6 recovers it along with the camera
+   height, stored keyed by capability fingerprint *and* orientation. All three
+   browsers now run the rangefinder correctly. What has not been done is a
+   numerical comparison of the stored FOV between Safari and WKWebView, so
+   whether the crop factor actually differs remains unmeasured. The
+   conservative keying means it does not matter in practice: each browser
+   calibrates its own.
 6. ✅ **ANSWERED.** WebGPU **is** exposed to Chrome on iOS 26.6.1, so it is not
    Safari-only and WKWebView does provide it. Instrument 9 can commit to the
    WebGPU path. Edge unconfirmed but now unlikely to differ.
-7. 🟡 **PARTIALLY ANSWERED.** Wake Lock is guaranteed by the iOS 26 floor
-   (16.4+) and the diagnostics screen reports whether it is actually *held*,
-   which is a different and more useful claim. Not yet recorded per browser.
-8. ⬜ **STILL OPEN.** Whether the motion permission prompt behaves identically
-   in Chrome and Edge, and what the denial-recovery path actually is in each.
-   Nothing has been denied yet, so the recovery path has never been walked.
-   Worth deliberately denying once in each browser rather than waiting to find
-   out from a user.
+7. ✅ **ANSWERED.** Wake Lock is available and the app runs correctly in all
+   three browsers. The diagnostics screen reports whether it is actually
+   *held*, which is the more useful claim than mere availability.
+8. 🟡 **MOSTLY ANSWERED.** The motion permission prompt works in all three
+   browsers; the boot gate is not browser-sensitive in practice. What is
+   **still untested** is the denial-recovery path — nothing has ever been
+   denied, so the copy in §4 describing how to recover has never been walked
+   through. Worth deliberately denying once per browser rather than finding
+   out from a user that the instructions are wrong.
 
 ### New questions raised by the work so far
 

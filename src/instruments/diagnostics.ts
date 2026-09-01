@@ -13,6 +13,7 @@ import { motion } from '../sensors/motion';
 import { orientation } from '../sensors/orientation';
 import { gravity, calibration, calibrateFromFlat, resetCalibration } from '../sensors/gravity';
 import * as wakelock from '../lib/wakelock';
+import { probeCameraCapabilities, CameraUnavailableError } from '../sensors/camera';
 import { TARGET, type ExpectedCapability } from '../lib/platform';
 import type { Vec3 } from '../lib/vec';
 import { lerp, len } from '../lib/vec';
@@ -145,6 +146,46 @@ export class DiagnosticsInstrument extends Instrument {
       el('div', { class: 'btn-row' }, btnCal, btnReset),
       calBox);
     renderCal();
+
+    // --- Camera capabilities (§11 q.4) ------------------------------------
+    // Behind a button, not automatic: §4 is clear that the camera is acquired
+    // by the screen that needs it, and a diagnostics page that silently lights
+    // the privacy indicator on arrival would be exactly the alarming behaviour
+    // that section warns against. The probe releases the track immediately.
+    const camBox = el('div');
+    const btnCam = el('button', { class: 'btn', type: 'button' }, 'Probe camera capabilities');
+    btnCam.addEventListener('click', async () => {
+      btnCam.disabled = true;
+      btnCam.textContent = 'Probing…';
+      clear(camBox);
+      try {
+        const p = await probeCameraCapabilities();
+        const rows: Array<[string, string, State]> = [
+          ['exposureTime', yn(p.hasExposureTime), p.hasExposureTime ? 'ok' : 'warn'],
+          ['iso', yn(p.hasIso), p.hasIso ? 'ok' : 'warn'],
+          ['torch', yn(p.hasTorch), ''],
+          ['capability keys', p.keys.length ? p.keys.join(', ') : '(none reported)', ''],
+        ];
+        append(camBox, table(rows));
+        const lux = p.hasExposureTime && p.hasIso;
+        append(camBox, notice(lux ? 'ok' : 'warn', lux
+          ? '<strong>A calibrated lux meter is possible.</strong> Both <code>exposureTime</code> and <code>iso</code> are exposed, so <code>L ≈ (N²/t)·(K/S)</code> can be evaluated with a fixed aperture and K ≈ 12.5.'
+          : '<strong>Only a relative light meter is possible.</strong> ' +
+            (p.keys.length
+              ? 'The track reports the keys above, but not both of <code>exposureTime</code> and <code>iso</code>, so the exposure equation cannot be evaluated. '
+              : 'The track reports no adjustable capabilities at all, which is the usual answer on iOS. ') +
+            'Derive a relative reading from mean frame luminance instead, and label it as relative.'));
+      } catch (e) {
+        const err = e as CameraUnavailableError;
+        append(camBox, notice('bad', `<strong>Could not probe the camera.</strong> ${escapeHtml(err.message)}`));
+      }
+      btnCam.disabled = false;
+      btnCam.textContent = 'Probe camera capabilities';
+    });
+
+    append(scroll, section('Camera capabilities — §11 q.4'),
+      notice('warn', 'Asks the camera what it can do, then releases it immediately. Decides whether a <strong>calibrated</strong> lux meter is possible, or only a relative one.'),
+      el('div', { class: 'btn-row' }, btnCam), camBox);
 
     // --- Known-absent APIs -----------------------------------------------
     append(scroll, section('Absent on iOS — by design, not a bug'),

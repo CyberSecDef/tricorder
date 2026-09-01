@@ -161,7 +161,7 @@ WKWebView-versus-Safari question is not a version question:
 | §11 q.3 sample rate | **Answered.** 48000 Hz, Nyquist 24 kHz — full 15–22 kHz ultrasonic band usable |
 | Doppler | Pass — detects a hand approaching and receding, direction correct |
 
-Tested in Chrome. Safari and Edge still outstanding for the §10 M1 gate.
+**Verified in Safari, Chrome and Edge** on iOS 26.6.1 — everything built works in all three, and no browser-specific code path exists or turned out to be needed. That satisfies the §10 M1 gate.
 
 Acceptance tests per §8, in build order:
 
