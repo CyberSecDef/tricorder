@@ -30,7 +30,7 @@ the source point back at it.
 | 6 | Floor-plane rangefinder | ✅ built and **verified on device** — within inches after two-point calibration |
 | 7 | Magnetic anomaly detector | ⛔ built and correct, but no signal exists on iOS 26.6.1 — hidden from the rail |
 | 8 | Ultrasonic Doppler | ✅ built and **verified on device** — detects motion and direction |
-| 9 | ML depth scanner | ✅ built — needs on-device verification |
+| 9 | ML depth scanner | ✅ built and **verified on device** — WebGPU, fp16, 252 px |
 | 10 | Acoustic sonar | M5 — stub |
 
 Nothing has been verified on a physical iPhone yet. See
@@ -167,6 +167,7 @@ WKWebView-versus-Safari question is not a version question:
 | Rangefinder | Pass — uncalibrated it read 1.76 m at 2.00 m (−12%); after two-point calibration, accurate to inches |
 | §11 q.3 sample rate | **Answered.** 48000 Hz, Nyquist 24 kHz — full 15–22 kHz ultrasonic band usable |
 | Doppler | Pass — detects a hand approaching and receding, direction correct |
+| Depth scanner | Pass — live depth map on WebGPU with fp16 at 252 px |
 | Depth scanner size | **252px 342 ms vs native 518px 2255 ms** — 6.6×. Handing the pipeline a smaller canvas does nothing; the processor's own size is what counts |
 | Depth scanner dtype | **fp16 500 ms, q4f16 1000 ms, q8 3600 ms** on WebGPU at 256px. §8.9's recommended q8 is 7.2× slower than fp16, and slower than the CPU path |
 | §11 q.4 lux meter | **Answered: no.** Neither `exposureTime` nor `iso` is exposed in any browser, so only a *relative* light meter is possible. `torch` and `zoom` **are** exposed |
