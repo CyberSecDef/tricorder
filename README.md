@@ -16,7 +16,7 @@ Implementation constraints, instrument specs and the open questions live in
 [`TRICORDER_HANDOFF.md`](TRICORDER_HANDOFF.md). Section references throughout
 the source point back at it.
 
-## Status — M1, M2 and M3 built
+## Status — M1–M4 built
 
 | # | Instrument | State |
 |---|---|---|
@@ -30,7 +30,7 @@ the source point back at it.
 | 6 | Floor-plane rangefinder | ✅ built and **verified on device** — within inches after two-point calibration |
 | 7 | Magnetic anomaly detector | ⛔ built and correct, but no signal exists on iOS 26.6.1 — hidden from the rail |
 | 8 | Ultrasonic Doppler | ✅ built and **verified on device** — detects motion and direction |
-| 9 | ML depth scanner | M4 — stub |
+| 9 | ML depth scanner | ✅ built — needs on-device verification |
 | 10 | Acoustic sonar | M5 — stub |
 
 Nothing has been verified on a physical iPhone yet. See
@@ -44,6 +44,13 @@ Nothing has been verified on a physical iPhone yet. See
 npm install
 npm run dev          # https://localhost:5173
 ```
+
+`npm run dev` and `npm run build` both first run `scripts/copy-ort.mjs`, which
+copies ~63 MB of ONNX Runtime WebAssembly out of `node_modules` into
+`public/ort/` for Instrument 9. Those are build artefacts and are gitignored.
+Self-hosted rather than fetched from a CDN because the installed runtime is a
+dev build whose exact version may not exist on one — and a near-miss version
+fails at runtime rather than 404ing somewhere you would notice.
 
 `localhost` is a secure context, so no certificate work is needed. Desktop
 Chromium has no DeviceMotion and no `webkitCompassHeading`, so the compass and

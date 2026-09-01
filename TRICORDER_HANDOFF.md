@@ -92,7 +92,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | 6 | Floor-plane rangefinder | Medium | Camera + DeviceMotion | ✅ built, **accurate to inches** after two-point calibration |
 | 7 | Magnetic anomaly detector | Medium | DeviceOrientation + DeviceMotion | ⛔ built and correct, but **no signal exists on iOS 26.6.1** — not in the rail (§8.7) |
 | 8 | Ultrasonic Doppler motion | Medium | Web Audio | ✅ built and **verified on device** — detects motion and its direction |
-| 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU | not started; WebGPU path confirmed available |
+| 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU | ✅ built; not yet exercised on hardware |
 | 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | not started |
 | — | Diagnostics | — | — | ✅ built (§9) |
 | — | Magnetic residual probe | — | DeviceOrientation + DeviceMotion | ✅ built — the harness that answered §11 q.2 |
@@ -838,6 +838,30 @@ const depth = await pipeline('depth-estimation',
 - **Per-frame min/max normalization causes severe flicker.** Smooth the normalization bounds with an EMA across frames.
 - False-color with a perceptually uniform ramp (viridis/turbo/inferno) — do not use a raw hue rotation.
 
+### MEASURED — three things that cost time
+
+- **`'gpu' in navigator` is not a capability test.** It says the API exists,
+  not that it works: headless Chromium advertises `navigator.gpu` and then
+  returns no adapter, and `pipeline(..., {device: 'webgpu'})` fails at
+  model-load time with "no available backend found" — an error that names
+  neither the real cause nor the decision, made seconds earlier, that led to
+  it. Call `await navigator.gpu.requestAdapter()` and believe the answer.
+- **Decide deliberately where the ONNX Runtime binaries come from.** Bundling
+  them is not the default you might expect: Rollup resolved the runtime's
+  internal `new URL('…wasm', import.meta.url)` and emitted 23 MB of the
+  *asyncify* variant into the build — which is neither the WebGPU build nor the
+  plain fallback the app actually uses. Which variant the runtime asks for is
+  its decision, not yours, and depends on the backend and whether it takes an
+  async path; ship jsep, asyncify and plain, or be prepared for a 404 inside an
+  error message that mentions none of them.
+- **The Vite dev server and a static host behave differently here, and only
+  dev is broken.** The runtime loads its glue with a dynamic `import()`, which
+  drags the file into the module graph, and the dev server then tries to
+  transform an emscripten bundle as an ES module and returns 500. `vite
+  preview` and any real host serve `public/` untouched and work fine. Worth
+  knowing before you spend an hour debugging a bug that will not exist in
+  production.
+
 **Stretch:** use Instrument 6's metric floor distances to fit a scale+shift that converts the relative map into approximate metric depth. Two or three tapped floor points are enough to solve a least-squares fit. Clearly label the result as estimated.
 
 **Acceptance:** A hand held in front of the camera renders clearly nearer than the wall behind it, with stable coloring frame to frame.
@@ -935,7 +959,7 @@ Matched-filter time-of-flight ranging. **Requires the `raw` mic profile (§5)** 
   separate occasion before it is written down as settled — this document said
   "measure once" for engine-level questions, and that was wrong.
 - **M3** — ✅ **built and verified on device.** Ultrasonic Doppler, detecting motion and discriminating approach from recede. The sample rate is 48 kHz (§11 q.3), so the carrier goes at 20 kHz with the full band available. Handle the §0.7 graph-termination trap in the emit/analyse path — it will bite here too.
-- **M4** — ML depth scanner. Check the WebGPU matrix (§1) before committing to the WebGPU path. **Already checked: WebGPU is present in Chrome on iOS 26**, so the WebGPU path is viable and WASM is a fallback rather than the expected route.
+- **M4** — ✅ **built.** ML depth scanner. WebGPU is present in all three browsers on iOS 26, so it is the expected route and WASM a genuine fallback. Verified end to end on the WASM path (headless has no GPU adapter): model loads, inference runs, depth map renders. Needs a device to exercise WebGPU and to see real frame rates.
 - **M5** — Sonar, if M1–M4 are solid.
 
 ---

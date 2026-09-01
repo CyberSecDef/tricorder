@@ -602,3 +602,45 @@ body {
 
 .notice ol { margin: 6px 0 0; padding-left: 20px; }
 .notice ol li { margin-bottom: 5px; }
+
+/* ---------- ML depth scanner --------------------------------------------
+   Camera underneath, depth map painted over it. The map is the point, so the
+   video sits at low opacity purely to keep the framing legible. */
+.depth {
+  position: relative;
+  flex: 0 0 auto;
+  height: min(48dvh, 400px);
+  background: #000;
+  overflow: hidden;
+  border-radius: 2px;
+}
+.depth__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.18;
+}
+.depth__out {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* The model output is 256-ish square; let it fill without distorting. */
+  object-fit: cover;
+}
+
+/* Download progress. */
+.bar__track {
+  height: 6px;
+  background: #14141c;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.bar__prog {
+  height: 100%;
+  width: 0%;
+  background: var(--lc-gold);
+  transition: width 200ms linear;
+}

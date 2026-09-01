@@ -4,16 +4,20 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/copy-ort.mjs && vite",
     "dev:lan": "vite --host",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/copy-ort.mjs && tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "serve-ca": "bash scripts/serve-ca.sh",
-    "certs": "bash scripts/make-certs.sh"
+    "certs": "bash scripts/make-certs.sh",
+    "copy-ort": "node scripts/copy-ort.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0"
   }
 }
