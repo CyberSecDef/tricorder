@@ -97,6 +97,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | — | Diagnostics | — | — | ✅ built (§9) |
 | — | Magnetic residual probe | — | DeviceOrientation + DeviceMotion | ✅ built — the harness that answered §11 q.2 |
 | + | Barcode / QR scanner | Easy | Camera + ZXing WASM | ✅ built — beyond the original ten; see §14 |
+| + | Pulse (PPG) | Medium | Camera + torch | ✅ built — beyond the original ten; see §15 |
 
 Ship 1–5 as a working v1 before touching 6+.
 
@@ -1266,3 +1267,52 @@ whole value of the instrument is that its description can be trusted.
 on a curved or matte surface in poor light is the normal failure. Feature
 detected, per the §7 correction, and simply absent when the track does not
 offer it.
+
+---
+
+## 15. Pulse — an addition, and where the line is
+
+Photoplethysmography: a fingertip over the rear camera with the torch lit,
+measuring the ~1% periodic dip in brightness as each heartbeat pushes blood
+through the tissue. Band-pass, transform, and the spectral peak is the rate.
+The same physical principle a pulse oximeter uses.
+
+**This instrument is where the project's honesty rule earns its keep**, because
+"medical" invites a credulity that "seismograph" does not. A person will
+believe a number on a health readout in a way they will not believe an
+arbitrary vibration index. So the boundary is drawn explicitly, in the UI as
+well as here:
+
+| | |
+|---|---|
+| Pulse rate | **Yes.** A real optical measurement of a real physical event. |
+| Blood oxygen | **No.** SpO2 needs two calibrated wavelengths and a known optical path. A single RGB sensor has neither, and anything claiming it from one is guessing. |
+| Blood pressure | **No.** It is not in this signal. |
+| Arrhythmia, or any abnormality | **No.** It reports one dominant rate over seventeen seconds. An irregular rhythm makes that number *less* meaningful, not more. |
+
+It is not a medical device, the UI says so first and prominently, and it
+refuses to report at all when the signal will not support a number.
+
+**Implementation notes worth keeping:**
+
+- **Detect the finger, do not assume it.** A fingertip over a lit torch is
+  unmistakable — bright, overwhelmingly red, and almost perfectly flat, because
+  the tissue diffuses everything. Requiring all three (mean red above 40,
+  redness ratio above 1.1, spatial standard deviation below 45) rejects
+  anything else pointed at the camera. Without it the estimator will happily
+  find a "pulse" in the flicker of mains lighting.
+- **Sample on a timer, not the render loop.** An uneven series smears the
+  spectral peak the entire estimate rests on. Track the rate actually achieved
+  and use *that* for the frequency axis rather than the rate requested.
+- **Require a local maximum in the band.** Without it the estimator returns the
+  edge of the band whenever residual drift dominates, which looks like a
+  plausible 42 bpm.
+- **Red, not green.** Green is the better channel for *reflective* PPG off a
+  wrist; for transmission through a fingertip, red carries the strongest
+  pulsatile component.
+
+`lib/pulse.ts` is DOM-free and tested against synthetic PPG — a pulse-shaped
+waveform with a dicrotic notch, 1% modulation on a large DC level, plus drift
+and noise. It recovers 45–200 bpm to within a few tenths across that range and
+scores pure noise at 2.1x confidence against a real pulse's 25x or better,
+which is what the 8x reporting threshold sits between.

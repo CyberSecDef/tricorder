@@ -12,6 +12,7 @@ import { DopplerInstrument } from './instruments/doppler';
 import { DepthInstrument } from './instruments/depth';
 import { SonarInstrument } from './instruments/sonar';
 import { ScannerInstrument } from './instruments/scanner';
+import { PulseInstrument } from './instruments/pulse';
 import { PLANNED, PlannedInstrument } from './instruments/planned';
 
 const NAV: NavEntry[] = [
@@ -24,6 +25,7 @@ const NAV: NavEntry[] = [
   { id: 'depth', short: 'Depth', milestone: 'M4', create: () => new DepthInstrument() },
   { id: 'sonar', short: 'Sonar', milestone: 'M5', create: () => new SonarInstrument() },
   { id: 'scanner', short: 'Scan', milestone: '+', create: () => new ScannerInstrument() },
+  { id: 'pulse', short: 'Pulse', milestone: '+', create: () => new PulseInstrument() },
   // Instrument 7 is deliberately absent: it is built and correct, but no
   // magnetic signal reaches the web layer on iOS 26.6.1, so it would be a
   // detector that detects nothing (§8.7 of the handoff). Re-enable by
