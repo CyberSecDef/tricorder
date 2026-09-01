@@ -64,8 +64,15 @@ type Dtype = (typeof DTYPES)[number];
 const SIZES = [196, 252, 350, 518] as const;   // 14 × {14, 18, 25, 37}
 /** The model's own default, for reference in the UI. */
 const NATIVE_SIZE = 518;
-/** Minimum interval between inferences, ms — caps the loop at ~15 fps. */
-const MIN_FRAME_MS = 66;
+/**
+ * Minimum interval between inferences in continuous mode, ms.
+ *
+ * Deliberately conservative. A depth map does not need to be fast to be
+ * useful, and on the reference device sustained WebGPU inference plus a live
+ * camera was enough to get the tab reclaimed by WKWebView within ten seconds.
+ * Fewer inferences per second is fewer allocations per second.
+ */
+const MIN_FRAME_MS = 200;   // ~5 fps
 /** Smoothing for the normalisation bounds. Low and slow — this is the anti-flicker. */
 const BOUNDS_ALPHA = 0.08;
 
@@ -78,6 +85,19 @@ export class DepthInstrument extends Instrument {
   private cam: CameraHandle | null = null;
   private pipe: any = null;
   private running = false;
+  /**
+   * Single-shot by default.
+   *
+   * Continuous inference is the natural thing to build and the wrong default
+   * here: on the reference device it crashed the tab within ten seconds, and a
+   * depth *scanner* does not actually need to run forever. One frame on demand
+   * is the honest interaction for the instrument, costs nothing while idle,
+   * and cannot accumulate anything. Continuous remains available for anyone
+   * whose device tolerates it.
+   */
+  private continuous = false;
+  private scanPending = false;
+  private scanCount = 0;
   private loading = false;
   private backend: 'webgpu' | 'wasm' = 'wasm';
   private backendReason = '';
@@ -172,8 +192,11 @@ export class DepthInstrument extends Instrument {
     const btnLoad = el('button', { class: 'btn', type: 'button' }, 'Load model (~25–50 MB)');
     btnLoad.addEventListener('click', () => void this.load(btnLoad, bar, progLabel, statusBox));
 
+    // Scanning is the primary interaction, so it gets a slot immediately under
+    // Model rather than sitting below the tuning knobs.
+    const scanBox = el('div', { class: 'step' });
     append(scroll, section('Model'),
-      el('div', { class: 'btn-row' }, btnLoad), barWrap, progLabel);
+      el('div', { class: 'btn-row' }, btnLoad), barWrap, progLabel, scanBox);
 
     // --- readouts ---------------------------------------------------------
     const rBackend = readout('Backend', { note: '' });
@@ -210,6 +233,28 @@ export class DepthInstrument extends Instrument {
         'Weight format: <code>fp16</code> is half precision and is usually fastest on a GPU, because it is what the hardware works in natively; <code>q8</code> is int8 and is usually fastest on the CPU path but can be <em>slower</em> on a GPU, which has to dequantise as it goes. ' +
         `Input size: this sets the <em>processor's</em> target, not just the canvas — handing the pipeline a smaller image does nothing, because it resizes back up to the model's native ${NATIVE_SIZE}px regardless. Values are multiples of 14, the model's patch size. Cost scales roughly with the square, so ${SIZES[0]}px is about ${(NATIVE_SIZE / SIZES[0]) ** 2 | 0}× cheaper than native. Changing the weight format downloads a different file; changing the size is free and applies on the next frame.`));
 
+    const btnScan = el('button', { class: 'btn', type: 'button' }, 'Scan');
+    btnScan.addEventListener('click', () => { this.scanPending = true; });
+    const btnCont = el('button', { class: 'btn btn--alt', type: 'button' }, 'Continuous: off');
+    btnCont.addEventListener('click', () => {
+      this.continuous = !this.continuous;
+      btnCont.textContent = `Continuous: ${this.continuous ? 'on' : 'off'}`;
+      btnCont.className = `btn${this.continuous ? '' : ' btn--alt'}`;
+    });
+    const btnUnload = el('button', { class: 'btn btn--warn', type: 'button' }, 'Unload model');
+    btnUnload.addEventListener('click', () => {
+      this.teardownPipe();
+      btnLoad.disabled = false;
+      btnLoad.textContent = `Load ${this.dtype} model`;
+    });
+
+    append(scanBox, section('Scanning'),
+      el('div', { class: 'btn-row' }, btnScan, btnCont, btnUnload),
+      notice('warn',
+        '<strong>Single shot by default, and that is deliberate.</strong> Sustained inference plus a live camera was enough to get the tab reclaimed by iOS within ten seconds on the reference device — the page simply reloads. ' +
+        'One frame on demand cannot accumulate anything, and a depth <em>scanner</em> does not really need to run forever. ' +
+        '<strong>Continuous</strong> is there if your device tolerates it; it is capped at about 5 fps. If it crashes, the levers that reduce memory are a smaller <strong>input size</strong> and <code>q4f16</code> <strong>weights</strong>, which are a quarter the size of fp16. <strong>Unload model</strong> frees everything without leaving the screen.'));
+
     const btnMap = el('button', { class: 'btn btn--alt', type: 'button' }, 'Colormap: turbo');
     btnMap.addEventListener('click', () => {
       this.lut = this.lut === TURBO ? GRAY : TURBO;
@@ -232,11 +277,22 @@ export class DepthInstrument extends Instrument {
       // page is hidden. Updating from the interval means the readout tells the
       // truth about a paused pipeline instead of freezing on its last value
       // and implying work that is not happening.
-      rFps.set(this.fps ? fmt(this.fps, 1) : '0.0',
-        !this.pipe ? 'model not loaded'
-          : document.visibilityState !== 'visible' ? 'paused — page not visible'
-          : '');
-      rFps.setState(!this.pipe ? 'idle' : this.fps > 0 ? 'ok' : 'warn');
+      // Frames per second is only meaningful in continuous mode. Showing
+      // "0.0 fps" while sitting idle by design reads as a failure, so say what
+      // is actually happening instead.
+      if (!this.pipe) {
+        rFps.set('—', 'model not loaded');
+        rFps.setState('idle');
+      } else if (document.visibilityState !== 'visible') {
+        rFps.set('0.0', 'paused — page not visible');
+        rFps.setState('warn');
+      } else if (!this.continuous) {
+        rFps.set('—', `single-shot · ${this.scanCount} scan${this.scanCount === 1 ? '' : 's'}`);
+        rFps.setState('ok');
+      } else {
+        rFps.set(fmt(this.fps, 1), 'continuous');
+        rFps.setState(this.fps > 0 ? 'ok' : 'warn');
+      }
     });
 
     let lastStatus = '';
@@ -250,7 +306,7 @@ export class DepthInstrument extends Instrument {
         clear(statusBox);
         if (status === 'idle') {
           append(statusBox, notice('warn',
-            `<strong>Model not loaded.</strong> It is a ${this.backend === 'webgpu' ? 'WebGPU' : 'WASM'} download of roughly 25–50 MB, so it is never fetched without asking. ` +
+            `<strong>Model not loaded.</strong> It is a download of roughly 25–50 MB, so it is never fetched without asking. ` +
             'The browser caches it afterwards — but per browser, so trying this in Safari and Chrome downloads it twice.'));
         } else if (status === 'error') {
           append(statusBox, notice('bad', `<strong>Model failed to load.</strong> ${escapeHtml(this.error ?? '')}`));
@@ -352,6 +408,7 @@ export class DepthInstrument extends Instrument {
       btn.textContent = 'Model loaded';
       clear(statusBox);
       this.running = true;
+      this.scanPending = true;   // one frame immediately, so it is not blank
       void this.inferenceLoop(RawImage);
     } catch (e) {
       this.loading = false;
@@ -373,6 +430,11 @@ export class DepthInstrument extends Instrument {
       // continuous GPU inference while invisible is a good way to be killed —
       // for work nobody can see.
       if (document.visibilityState !== 'visible') { await sleep(250); continue; }
+
+      // Single-shot mode: sit idle until asked. Costs nothing and cannot
+      // accumulate anything between scans.
+      if (!this.continuous && !this.scanPending) { await sleep(120); continue; }
+      this.scanPending = false;
 
       const video = this.cam.video;
       if (!video.videoWidth) { await sleep(100); continue; }
@@ -409,6 +471,7 @@ export class DepthInstrument extends Instrument {
         }
         this.inferMs = performance.now() - t0;
         this.inferCount++;
+        this.scanCount++;
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e);
         this.running = false;
