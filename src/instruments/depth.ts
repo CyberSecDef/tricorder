@@ -48,11 +48,22 @@ const DTYPES = ['fp16', 'q4f16', 'q8', 'fp32'] as const;
 type Dtype = (typeof DTYPES)[number];
 
 /**
- * Inference resolution. §8.9 warns that the model's native 518×518 is too slow
- * on a phone. Cost scales roughly with the square, so 192 is about 1.8× cheaper
- * than 256 and 4× cheaper than 384 — the biggest single lever on frame rate.
+ * Inference resolution.
+ *
+ * §8.9 says to downscale before inference, and taking that to mean "hand the
+ * pipeline a smaller canvas" is WRONG — it was the first thing tried here and
+ * it changed nothing at all. `DPTImageProcessor` resizes whatever it is given
+ * to the size in its own config, which for this model is 518×518. A 192 px
+ * canvas is upscaled straight back to 518 and inference costs exactly the
+ * same. Measured: 192 px and 256 px canvases both produced 500 ms.
+ *
+ * The resolution that matters is the PROCESSOR's, and it has to be set on the
+ * processor after the pipeline is built. DPT also requires a multiple of 14 —
+ * its patch size — hence these values rather than round numbers.
  */
-const SIZES = [192, 256, 384] as const;
+const SIZES = [196, 252, 350, 518] as const;   // 14 × {14, 18, 25, 37}
+/** The model's own default, for reference in the UI. */
+const NATIVE_SIZE = 518;
 /** Smoothing for the normalisation bounds. Low and slow — this is the anti-flicker. */
 const BOUNDS_ALPHA = 0.08;
 
@@ -70,7 +81,7 @@ export class DepthInstrument extends Instrument {
   private backendReason = '';
 
   private dtype: Dtype = 'fp16';
-  private inputSize: number = 256;
+  private inputSize: number = 252;
   private imageData: ImageData | null = null;
 
   private work = document.createElement('canvas');
@@ -173,7 +184,8 @@ export class DepthInstrument extends Instrument {
     btnSize.addEventListener('click', () => {
       this.inputSize = SIZES[(SIZES.indexOf(this.inputSize as any) + 1) % SIZES.length];
       this.work.width = this.work.height = this.inputSize;
-      btnSize.textContent = `Input: ${this.inputSize}px`;
+      this.applyProcessorSize();
+      btnSize.textContent = `Input: ${this.inputSize}px${this.inputSize === NATIVE_SIZE ? ' (native)' : ''}`;
     });
 
     append(scroll, section('Tuning'),
@@ -182,7 +194,7 @@ export class DepthInstrument extends Instrument {
         '<strong>These are the two levers on frame rate, and the right setting is device-specific.</strong> ' +
         'The Inference readout splits its total into <em>model</em> and <em>frame</em>: model time is the network, frame time is grabbing and converting the camera image. If frame time is the larger share, no amount of weight-format tuning will help and the problem is the plumbing. ' +
         'Weight format: <code>fp16</code> is half precision and is usually fastest on a GPU, because it is what the hardware works in natively; <code>q8</code> is int8 and is usually fastest on the CPU path but can be <em>slower</em> on a GPU, which has to dequantise as it goes. ' +
-        'Input size: cost scales roughly with the square, so 192 is about 1.8× cheaper than 256. Changing the weight format downloads a different file; changing the input size is free and takes effect on the next frame.'));
+        `Input size: this sets the <em>processor's</em> target, not just the canvas — handing the pipeline a smaller image does nothing, because it resizes back up to the model's native ${NATIVE_SIZE}px regardless. Values are multiples of 14, the model's patch size. Cost scales roughly with the square, so ${SIZES[0]}px is about ${(NATIVE_SIZE / SIZES[0]) ** 2 | 0}× cheaper than native. Changing the weight format downloads a different file; changing the size is free and applies on the next frame.`));
 
     const btnMap = el('button', { class: 'btn btn--alt', type: 'button' }, 'Colormap: turbo');
     btnMap.addEventListener('click', () => {
@@ -241,6 +253,25 @@ export class DepthInstrument extends Instrument {
     });
   }
 
+  /**
+   * Point the image processor at our chosen resolution.
+   *
+   * Must be set on the processor itself, not only on its config: the resolved
+   * `size` is read once at construction (`this.size = config.size ??
+   * config.image_size`), so writing config alone has no effect on an
+   * already-built pipeline. Both are set, so a processor that re-reads config
+   * also behaves.
+   */
+  private applyProcessorSize(): void {
+    const ip = (this.pipe as any)?.processor?.image_processor;
+    if (!ip) return;
+    const size = { width: this.inputSize, height: this.inputSize };
+    try {
+      ip.size = size;
+      if (ip.config) ip.config.size = size;
+    } catch { /* a future version may make these read-only; native size still works */ }
+  }
+
   /** Drop the pipeline and its GPU/WASM session so a reload is a clean start. */
   private teardownPipe(): void {
     this.running = false;
@@ -290,6 +321,8 @@ export class DepthInstrument extends Instrument {
           }
         },
       } as any);
+
+      this.applyProcessorSize();
 
       this.loading = false;
       btn.textContent = 'Model loaded';

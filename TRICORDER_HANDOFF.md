@@ -832,6 +832,31 @@ const depth = await pipeline('depth-estimation',
 - **WebGPU availability is the one place the three browsers may genuinely diverge** — Safari 26+ has it on by default; whether WKWebView exposes it to Chrome/Edge on the same iOS version needs verifying on device (§11). Detect `'gpu' in navigator` and fall back to WASM. Tell the user which backend is running and that WASM will be slow.
   **MEASURED:** WebGPU **is** present in Chrome on iOS 26.6.1, so WKWebView does expose it. Commit to the WebGPU path; keep WASM as a genuine fallback rather than an expected route for two browsers out of three.
 - Downscale input to 256×256 or 384×384 before inference. Full 518×518 is too slow on a phone.
+- ⚠️ **"Downscale the input" does NOT mean handing the pipeline a smaller
+  image.** This is the trap, and it was fallen into here. `DPTImageProcessor`
+  resizes whatever it receives to the size in *its own* config, which for this
+  model is 518×518 — so a 192 px canvas is upscaled straight back to 518 and
+  inference costs exactly the same. **MEASURED:** 192 px and 256 px canvases
+  both produced 500 ms on the device, identical, because both were running at
+  518 the whole time. The instrument looked downscaled and was not.
+
+  The resolution that matters belongs to the processor, and it must be set
+  after the pipeline is built:
+
+  ```js
+  const ip = pipe.processor.image_processor;
+  ip.size = { width: 252, height: 252 };
+  if (ip.config) ip.config.size = ip.size;   // resolved once at construction
+  ```
+
+  Both, because the processor resolves `this.size = config.size ??
+  config.image_size` when it is constructed, so writing the config alone has no
+  effect on a live pipeline. DPT also needs a **multiple of 14**, its patch
+  size — 196, 252, 350, 518 rather than round numbers.
+
+  **MEASURED**, same model and backend, only the processor size changed:
+  518 px → 2255 ms, 252 px → 342 ms. A **6.6× saving**, somewhat better than
+  the 4.2× that pure area scaling predicts.
 - ⚠️ **CORRECTION — `dtype: 'q8'` is the single worst choice on a GPU.** This
   document recommends q8 without qualification. That is right for the WASM
   path and badly wrong for WebGPU. **MEASURED** on the reference device,
