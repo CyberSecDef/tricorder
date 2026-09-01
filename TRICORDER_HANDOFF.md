@@ -969,6 +969,16 @@ Matched-filter time-of-flight ranging. **Requires the `raw` mic profile (§5)** 
    At 48 kHz, one sample = 7.15 mm of path = **3.6 mm of range resolution**.
 6. Average 4–8 pings and take the median to suppress spurious peaks.
 
+⚠️ **A phone speaker can barely produce 20 kHz.** The driver is a few
+millimetres across and rolls off hard above about 10 kHz — easily 30–40 dB down
+at 20 kHz. The Doppler survives that because it only needs sidebands off a
+direct path measured in centimetres; a sonar echo pays the penalty twice, going
+out and coming back, and at 60–80 dB down there may be nothing left to
+correlate. **The band is therefore selectable and defaults to an audible
+3–8 kHz sweep**, which is where the speaker actually works. Inaudibility is a
+real virtue and it is the second priority, not the first: get a return, then
+try moving up.
+
 **Realistic expectation:** 0.2–3 m against a large flat surface in a quiet room. It is finicky and pointing-sensitive. Present it as an A-scope trace (correlation amplitude vs. range) rather than a single number — the trace is both more honest and more tricorder-like.
 
 **Acceptance:** Pointing at a wall at a tape-measured 1 m and 2 m produces a correlation peak at the right range, repeatably.

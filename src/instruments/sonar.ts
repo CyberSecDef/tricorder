@@ -30,8 +30,29 @@ import { SonarCapture } from '../sensors/sonar-capture';
 import { makeChirp, matchedFilter, lagToRange, rangeToLag, SPEED_OF_SOUND } from '../lib/dsp';
 
 const CHIRP_MS = 10;
-const F_LOW = 15000;
-const F_HIGH = 22000;
+
+/**
+ * Chirp bands.
+ *
+ * §8.10 specifies 15→22 kHz, and inaudibility is a genuine virtue — but a
+ * phone speaker is a few millimetres across and rolls off hard above about
+ * 10 kHz, easily 30–40 dB down at 20 kHz. The Doppler survives that because it
+ * only needs sidebands off a direct path that is centimetres long. A sonar
+ * echo pays the penalty twice, on the way out and on the way back, and at
+ * 60–80 dB down there may simply be nothing left to correlate.
+ *
+ * So the band is selectable, and the honest advice is that the audible one
+ * works far better. It sounds like a short chirp and it puts real energy into
+ * the room.
+ */
+const BANDS = [
+  { id: 'ultrasonic', label: 'Ultrasonic 15–22 kHz', lo: 15000, hi: 22000,
+    note: 'inaudible, but a phone speaker is 30–40 dB down up here — may return nothing' },
+  { id: 'upper',      label: 'Upper 8–16 kHz',       lo: 8000,  hi: 16000,
+    note: 'faintly audible to some; a reasonable compromise' },
+  { id: 'audible',    label: 'Audible 3–8 kHz',      lo: 3000,  hi: 8000,
+    note: 'clearly audible, and where the speaker actually works — try this first' },
+] as const;
 /**
  * Capture window per ping. 16384 at 48 kHz is ~341 ms.
  *
@@ -118,7 +139,8 @@ export class SonarInstrument extends Instrument {
   private chirp: Float32Array | null = null;
   private chirpBuf: AudioBuffer | null = null;
   private sampleRate = 48000;
-  private level = 0.25;
+  private level = 0.6;
+  private band = 2;   // audible by default: the one most likely to work
   private busy = false;
 
   private envelope: Float32Array | null = null;
@@ -150,7 +172,7 @@ export class SonarInstrument extends Instrument {
 
     append(scroll,
       notice('warn',
-        `<strong>This emits a brief ${F_LOW / 1000}–${F_HIGH / 1000} kHz chirp for each ping.</strong> Most adults cannot hear it; children and animals generally can. ` +
+        '<strong>This emits a brief frequency sweep for each ping.</strong> In the default audible band you will hear six short chirps; the ultrasonic band is inaudible to most adults but far weaker. ' +
         'It only sounds while a measurement is running, and stops when you leave this screen.'),
       statusBox);
 
@@ -172,12 +194,7 @@ export class SonarInstrument extends Instrument {
         '<strong>Raw mic profile not fully applied — this instrument cannot work.</strong> Echo cancellation exists specifically to remove sound the device just emitted. It will cancel the chirp, and there will be nothing to correlate against.'));
     }
 
-    // Chirp, clamped so the sweep stays clear of Nyquist on a 44.1 kHz device.
-    const fHigh = Math.min(F_HIGH, this.sampleRate / 2 - 1500);
-    this.chirp = makeChirp(this.sampleRate, CHIRP_MS / 1000, F_LOW, fHigh);
-    const buf = ctx.createBuffer(1, this.chirp.length, this.sampleRate);
-    buf.getChannelData(0).set(this.chirp);
-    this.chirpBuf = buf;
+    this.buildChirp(ctx);
 
     this.capture = new SonarCapture(ctx, 2);
     try {
@@ -199,8 +216,26 @@ export class SonarInstrument extends Instrument {
     }) as HTMLInputElement;
     levelInput.addEventListener('input', () => { this.level = parseFloat(levelInput.value); });
 
+    const bandNote = el('div', { class: 'dim mono', style: 'font-size:11px' });
+    const btnBand = el('button', { class: 'btn btn--alt', type: 'button' }, '');
+    const renderBand = () => {
+      btnBand.textContent = BANDS[this.band].label;
+      bandNote.textContent = BANDS[this.band].note;
+    };
+    btnBand.addEventListener('click', () => {
+      this.band = (this.band + 1) % BANDS.length;
+      this.buildChirp(ctx);
+      renderBand();
+    });
+    renderBand();
+
     append(scroll, section('Ranging'),
-      el('div', { class: 'rf__row' }, btnPing, el('label', { class: 'rf__label', text: 'Level' }), levelInput));
+      el('div', { class: 'rf__row' }, btnPing, el('label', { class: 'rf__label', text: 'Level' }), levelInput),
+      el('div', { class: 'btn-row' }, btnBand), bandNote,
+      notice('warn',
+        '<strong>Start with the audible band.</strong> §8.10 specifies an ultrasonic chirp and inaudibility is genuinely nice — but a phone speaker is a few millimetres across and is 30–40 dB down at 20 kHz. ' +
+        'A sonar echo pays that twice, going out and coming back, so there may be nothing left to correlate. The audible sweep sounds like a short chirp and puts real energy into the room. ' +
+        'Once it is working there, try moving up a band and see whether it still holds.'));
 
     // --- readouts ---------------------------------------------------------
     const rRange = readout('Range', { unit: 'm', note: '', wide: true });
@@ -279,6 +314,17 @@ export class SonarInstrument extends Instrument {
     });
   }
 
+  /** Rebuild the chirp and its playback buffer for the current band. */
+  private buildChirp(ctx: AudioContext): void {
+    const b = BANDS[this.band];
+    // Keep the sweep clear of Nyquist on a 44.1 kHz device.
+    const fHigh = Math.min(b.hi, this.sampleRate / 2 - 1500);
+    this.chirp = makeChirp(this.sampleRate, CHIRP_MS / 1000, b.lo, fHigh);
+    const buf = ctx.createBuffer(1, this.chirp.length, this.sampleRate);
+    buf.getChannelData(0).set(this.chirp);
+    this.chirpBuf = buf;
+  }
+
   /** Fire the ping train, correlate each return, report the median. */
   private async measure(btn: HTMLButtonElement): Promise<void> {
     const ctx = this.mic?.ctx;
@@ -308,6 +354,11 @@ export class SonarInstrument extends Instrument {
 
     try {
       for (let p = 0; p < PINGS && this.isMounted; p++) {
+        // Audio lags the schedule by the output latency — 243 ms was measured
+        // on one device — so the last chirps are still audible after the
+        // analysis has run. Showing progress keeps the verdict from looking
+        // like it arrived early.
+        btn.textContent = `Ping ${p + 1}/${PINGS}…`;
         // Schedule with a lead so the emission time is known exactly rather
         // than being whenever the thread got round to it.
         const at = ctx.currentTime + 0.06;
