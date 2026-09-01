@@ -167,6 +167,7 @@ WKWebView-versus-Safari question is not a version question:
 | Rangefinder | Pass — uncalibrated it read 1.76 m at 2.00 m (−12%); after two-point calibration, accurate to inches |
 | §11 q.3 sample rate | **Answered.** 48000 Hz, Nyquist 24 kHz — full 15–22 kHz ultrasonic band usable |
 | Doppler | Pass — detects a hand approaching and receding, direction correct |
+| Depth scanner dtype | **fp16 500 ms, q4f16 1000 ms, q8 3600 ms** on WebGPU at 256px. §8.9's recommended q8 is 7.2× slower than fp16, and slower than the CPU path |
 | §11 q.4 lux meter | **Answered: no.** Neither `exposureTime` nor `iso` is exposed in any browser, so only a *relative* light meter is possible. `torch` and `zoom` **are** exposed |
 
 **Verified in Safari, Chrome and Edge** on iOS 26.6.1 — everything built works in all three, and no browser-specific code path exists or turned out to be needed. That satisfies the §10 M1 gate.
