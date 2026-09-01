@@ -432,6 +432,23 @@ const stream = await navigator.mediaDevices.getUserMedia({
 ```
 - The `<video>` element **must** have `playsinline` and `muted` or iOS will refuse to play it inline.
 - Torch/flash control (`applyConstraints({advanced:[{torch:true}]})`) is **not reliably available on iOS**. Feature-detect with `track.getCapabilities()` and hide any UI that depends on it. Do not build an instrument that requires it.
+
+  **CORRECTION — `torch` IS available on iOS 26.6.1, in all three browsers.**
+  It appears in `getCapabilities()` as a supported constraint on the rear
+  camera. The advice to feature-detect stands and should never be dropped, but
+  the pessimism does not: torch-assisted work is on the table at the current
+  target floor. Do not make an instrument *depend* on it without a fallback,
+  because this is a capability that could disappear on another device or
+  version — but do not refuse to use it either.
+
+- **`zoom` is also exposed, and it is a hazard for Instrument 6.** The
+  rangefinder's calibration assumes a fixed field of view; zoom changes it.
+  Nothing in the app sets zoom today, so the stored calibration holds — but any
+  future zoom control invalidates it, and the failure would be silent and
+  plausible-looking rather than obvious.
+- **`focusDistance` is exposed too.** If it can be read as a measurement rather
+  than only written as a constraint, it is an independent distance estimate and
+  worth cross-checking against Instrument 6's geometry. Untested.
 - Release the track on screen exit. A leaked camera stream keeps the privacy indicator lit in every browser.
 - **MEASURED:** the stream from `getUserMedia` on the reference device is 1280×720. The `playsinline` + `muted` requirement is real; both attributes and both properties are set in `sensors/camera.ts` because setting only the attributes is not always enough.
 
@@ -956,15 +973,35 @@ Engine-level questions — measure once, the answer holds for all three browsers
    full 15–22 kHz; the narrowed 44.1 kHz variants are not needed on this
    device. Keep reading it at runtime regardless — it depends on the hardware
    and the active audio route, not on the app.
-4. ⬜ **STILL OPEN, but now answerable in one tap.** Whether
-   `track.getCapabilities()` exposes `exposureTime` / `iso`. If it does, a
-   **calibrated lux meter** becomes possible via `L ≈ (N²/t)·(K/S)` with fixed
-   aperture N and K ≈ 12.5. If not, ship a relative light meter from mean frame
-   luminance. **Diagnostics → Camera capabilities → Probe camera capabilities**
-   asks the track directly, lists every key it reports, and states which of the
-   two meters is possible. The probe releases the camera immediately rather
-   than holding it. (For reference, desktop Chromium reports `exposureTime` but
-   not `iso`, so even there only a relative meter is possible.)
+4. ✅ **ANSWERED — no calibrated lux meter is possible.** Neither
+   `exposureTime` nor `iso` is exposed, in **any** of the three browsers on
+   iOS 26.6.1, so `L ≈ (N²/t)·(K/S)` cannot be evaluated. A light meter here
+   must be **relative**, derived from mean frame luminance and labelled as
+   relative.
+
+   The full capability list, byte-identical across Safari, Chrome and Edge:
+
+   ```
+   aspectRatio, backgroundBlur, deviceId, facingMode, focusDistance,
+   frameRate, groupId, height, powerEfficient, torch, whiteBalanceMode,
+   width, zoom
+   ```
+
+   Three things in that list are worth more than the answer to the question:
+
+   - **`torch` is present.** See the correction in §7 — this document said not
+     to build on it.
+   - **`zoom` is present**, which is a live hazard for Instrument 6. Its
+     calibration assumes a fixed field of view, and zoom changes exactly that.
+     Nothing sets it today, but if anything ever does, the stored calibration
+     silently becomes wrong.
+   - **`focusDistance` is present.** Whether it can be *read* as a measurement
+     rather than only set is untested, but if it can it is an independent
+     distance estimate worth comparing against Instrument 6.
+
+   That the three lists are identical is also the cleanest direct evidence for
+   §1's central claim: one engine, and the browser differences live in
+   permissions and installability rather than in the API surface.
 
 Browser-level questions — check all three:
 
