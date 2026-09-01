@@ -91,7 +91,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | 5 | Audio spectrum analyzer | Easy | Web Audio | ✅ built; needed the §0.7 fix before it produced anything |
 | 6 | Floor-plane rangefinder | Medium | Camera + DeviceMotion | ✅ built, **accurate to inches** after two-point calibration |
 | 7 | Magnetic anomaly detector | Medium | DeviceOrientation + DeviceMotion | ⛔ built and correct, but **no signal exists on iOS 26.6.1** — not in the rail (§8.7) |
-| 8 | Ultrasonic Doppler motion | Medium | Web Audio | not started |
+| 8 | Ultrasonic Doppler motion | Medium | Web Audio | ✅ built; not yet exercised on hardware |
 | 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU | not started; WebGPU path confirmed available |
 | 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | not started |
 | — | Diagnostics | — | — | ✅ built (§9) |
@@ -892,7 +892,7 @@ Matched-filter time-of-flight ranging. **Requires the `raw` mic profile (§5)** 
   a result. Anything that gates a build decision should be reproduced on a
   separate occasion before it is written down as settled — this document said
   "measure once" for engine-level questions, and that was wrong.
-- **M3** — Ultrasonic Doppler. **Next, and unblocked.** The sample rate is 48 kHz (§11 q.3), so the carrier goes at 20 kHz with the full band available. Handle the §0.7 graph-termination trap in the emit/analyse path — it will bite here too.
+- **M3** — ✅ **built.** Ultrasonic Doppler. The sample rate is 48 kHz (§11 q.3), so the carrier goes at 20 kHz with the full band available. Handle the §0.7 graph-termination trap in the emit/analyse path — it will bite here too.
 - **M4** — ML depth scanner. Check the WebGPU matrix (§1) before committing to the WebGPU path. **Already checked: WebGPU is present in Chrome on iOS 26**, so the WebGPU path is viable and WASM is a fallback rather than the expected route.
 - **M5** — Sonar, if M1–M4 are solid.
 
