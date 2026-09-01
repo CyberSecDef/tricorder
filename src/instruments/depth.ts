@@ -84,6 +84,15 @@ export class DepthInstrument extends Instrument {
   private hiEMA: number | null = null;
 
   private inferMs = 0;
+  /**
+   * Split timing. "Inference is slow" has at least two very different causes
+   * and one number cannot tell them apart: the model itself, or the plumbing
+   * around it. `RawImage.fromCanvas` performs a GPU→CPU readback of the video
+   * frame every iteration, and on a phone a readback can cost more than people
+   * expect. Timing them separately turns a guess into a measurement.
+   */
+  private prepMs = 0;
+  private modelMs = 0;
   private inferCount = 0;
   private fps = 0;
   private lut: Uint8ClampedArray = TURBO;
@@ -171,6 +180,7 @@ export class DepthInstrument extends Instrument {
       el('div', { class: 'btn-row' }, btnDtype, btnSize),
       notice('warn',
         '<strong>These are the two levers on frame rate, and the right setting is device-specific.</strong> ' +
+        'The Inference readout splits its total into <em>model</em> and <em>frame</em>: model time is the network, frame time is grabbing and converting the camera image. If frame time is the larger share, no amount of weight-format tuning will help and the problem is the plumbing. ' +
         'Weight format: <code>fp16</code> is half precision and is usually fastest on a GPU, because it is what the hardware works in natively; <code>q8</code> is int8 and is usually fastest on the CPU path but can be <em>slower</em> on a GPU, which has to dequantise as it goes. ' +
         'Input size: cost scales roughly with the square, so 192 is about 1.8× cheaper than 256. Changing the weight format downloads a different file; changing the input size is free and takes effect on the next frame.'));
 
@@ -220,7 +230,9 @@ export class DepthInstrument extends Instrument {
       rBackend.set(this.backend.toUpperCase(), this.backendReason);
       rBackend.setState(this.backend === 'webgpu' ? 'ok' : 'warn');
       rInfer.set(this.inferMs ? fmt(this.inferMs, 0) : '—',
-        `${this.inputSize}×${this.inputSize} · ${this.dtype}`);
+        this.inferMs
+          ? `model ${fmt(this.modelMs, 0)} + frame ${fmt(this.prepMs, 0)} · ${this.inputSize}px ${this.dtype}`
+          : `${this.inputSize}×${this.inputSize} · ${this.dtype}`);
       rFps.set(this.fps ? fmt(this.fps, 1) : '—', this.pipe ? '' : 'model not loaded');
       rRange.set(this.loEMA === null ? '—' : `${fmt(this.loEMA, 2)} … ${fmt(this.hiEMA!, 2)}`,
         'relative inverse depth — unitless');
@@ -306,8 +318,12 @@ export class DepthInstrument extends Instrument {
       try {
         ctx.drawImage(video, 0, 0, this.inputSize, this.inputSize);
         const img = RawImage.fromCanvas(this.work);
+        const t1 = performance.now();
         const res: any = await this.pipe(img);
+        const t2 = performance.now();
         if (!this.isMounted) return;
+        this.prepMs = t1 - t0;
+        this.modelMs = t2 - t1;
 
         const t = res?.predicted_depth;
         if (t?.data && t?.dims?.length >= 2) {
