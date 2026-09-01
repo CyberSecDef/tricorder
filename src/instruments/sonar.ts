@@ -32,19 +32,38 @@ import { makeChirp, matchedFilter, lagToRange, rangeToLag, SPEED_OF_SOUND } from
 const CHIRP_MS = 10;
 const F_LOW = 15000;
 const F_HIGH = 22000;
-/** Capture window per ping. 4096 at 48 kHz is ~85 ms, about 14 m of round trip. */
-const CAPTURE_N = 4096;
+/**
+ * Capture window per ping. 16384 at 48 kHz is ~341 ms.
+ *
+ * Far larger than the ranges of interest need, and deliberately so.
+ * `AudioContext.currentTime` is a SCHEDULING clock: sound emerges at the
+ * scheduled time plus the output latency, and microphone samples arrive with
+ * an input latency on top. On mobile those together are easily 40–100 ms. An
+ * 85 ms window starting at the scheduled frame missed the chirp completely —
+ * the device was audibly clicking six times while the correlator found
+ * nothing, not even the direct path from a speaker centimetres away.
+ */
+const CAPTURE_N = 16384;
 /**
  * FFT size for the matched filter. MUST exceed capture + reference, or the
  * correlation is circular and the direct-path leak's peak wraps into the far
  * end of the trace — where it outweighs any real echo and pins every reading
  * to maximum range. See the note on matchedFilter().
  */
-const FFT_N = 8192;
+const FFT_N = 32768;
 /**
- * Blanking, ms. The speaker and microphone are centimetres apart, so the
- * direct path is the largest thing in every correlation by a wide margin.
- * 1.5 ms of blanking costs us everything closer than about 26 cm.
+ * Blanking, ms, measured FROM THE DIRECT PATH rather than from the scheduled
+ * emission.
+ *
+ * This is the important architectural point. Rather than trying to know the
+ * output and input latencies — which vary by device, by route, and with
+ * whatever the OS is doing — the direct path is used as the zero reference.
+ * It is guaranteed to be present, it is by far the strongest peak, and its
+ * travel time across a few centimetres is negligible. Every latency in the
+ * chain is common to it and to the echo, so subtracting cancels all of them
+ * exactly. Range is `lagToRange(echoLag − directLag)`.
+ *
+ * 1.5 ms of blanking past it costs us everything closer than about 26 cm.
  */
 const BLANK_MS = 1.5;
 /** Refuse to report beyond this; §8.10 puts the realistic ceiling near 3 m. */
@@ -84,7 +103,7 @@ const EDGE_GUARD_SAMPLES = 24;
  * strongest check here — waves it through. A real reflection is a lobe that
  * rises out of its surroundings; a skirt is not.
  */
-const MIN_PROMINENCE = 4;
+const MIN_PROMINENCE = 5;
 /** Half-width of the neighbourhood prominence is measured against, samples. */
 const PROMINENCE_WINDOW = 220;
 
@@ -121,6 +140,7 @@ export class SonarInstrument extends Instrument {
    */
   private directLag = 0;
   private directVal = 0;
+  private pinged = false;
   private status = '';
 
   protected async build(root: HTMLElement): Promise<void> {
@@ -243,11 +263,11 @@ export class SonarInstrument extends Instrument {
       rRes.set(fmt(SPEED_OF_SOUND / (2 * this.sampleRate) * 1000, 2),
         `1 sample @ ${fmt(this.sampleRate / 1000, 1)} kHz`);
 
-      rDirect.set(this.directVal > 0 ? 'HEARD' : this.lastRanges.length ? 'ABSENT' : '—',
+      rDirect.set(this.directVal > 0 ? 'HEARD' : this.pinged ? 'ABSENT' : '—',
         this.directVal > 0
-          ? `lag ${fmt(this.directLag, 1)} samples · ${fmt(lagToRange(this.directLag, this.sampleRate) * 100, 1)} cm`
-          : this.lastRanges.length ? 'no sound reaching the mic — check the mute switch' : '');
-      rDirect.setState(this.directVal > 0 ? 'ok' : this.lastRanges.length ? 'bad' : 'idle');
+          ? `round-trip latency ${fmt((this.directLag / this.sampleRate) * 1000, 1)} ms — cancelled out`
+          : this.pinged ? 'no sound reaching the mic — check the mute switch' : '');
+      rDirect.setState(this.directVal > 0 ? 'ok' : this.pinged ? 'bad' : 'idle');
 
       rPings.set(this.lastRanges.length ? `${this.agreeing}/${this.lastRanges.length}` : '—',
         this.lastRanges.length
@@ -282,8 +302,9 @@ export class SonarInstrument extends Instrument {
     // read as a confident measurement of 0.257 m. Consistent nonsense is
     // harder to catch than inconsistent nonsense.
     const blankLag = Math.round((BLANK_MS / 1000) * this.sampleRate);
-    const searchLo = blankLag + EDGE_GUARD_SAMPLES;
-    const maxLag = Math.min(CAPTURE_N - chirp.length, Math.round(rangeToLag(MAX_RANGE_M, this.sampleRate)));
+    // Offsets from the DIRECT PATH, not from the scheduled emission.
+    const relLo = blankLag + EDGE_GUARD_SAMPLES;
+    const relHi = Math.round(rangeToLag(MAX_RANGE_M, this.sampleRate));
 
     try {
       for (let p = 0; p < PINGS && this.isMounted; p++) {
@@ -310,27 +331,43 @@ export class SonarInstrument extends Instrument {
         try { src.disconnect(); g.disconnect(); } catch { /* done */ }
         if (!win) { this.status = '!<strong>No samples captured.</strong> The microphone worklet is not delivering audio. Leave and re-enter the screen to re-acquire it.'; break; }
 
-        const env = matchedFilter(win, chirp, FFT_N);
+        // Coherent stack of the RAW capture. Every window starts at the same
+        // scheduled frame, so a static target lands at the same sample with
+        // the same phase and the echo adds in phase while noise adds as a
+        // random walk — gain proportional to N rather than sqrt(N).
+        for (let i = 0; i < CAPTURE_N; i++) stack[i] += win[i];
         stacked++;
 
-        const peak = pickPeak(env, searchLo, maxLag);
-        if (peak) ranges.push(lagToRange(peak.lag, this.sampleRate));
+        // Per-ping range, referenced to that ping's own direct path so the
+        // audio latency cancels.
+        const env = matchedFilter(win, chirp, FFT_N);
+        const d = pickPeak(env, 1, CAPTURE_N - chirp.length);
+        if (d) {
+          const lo = Math.round(d.lag) + relLo;
+          const hi = Math.min(Math.round(d.lag) + relHi, CAPTURE_N - chirp.length);
+          const peak = pickPeak(env, lo, hi);
+          if (peak) ranges.push(lagToRange(peak.lag - d.lag, this.sampleRate));
+        }
 
         await sleep(PING_GAP_MS);
       }
 
+      this.pinged = true;
       if (stacked) {
         for (let i = 0; i < CAPTURE_N; i++) stack[i] /= stacked;
         const stackEnv = matchedFilter(stack.subarray(0, CAPTURE_N), chirp, FFT_N);
         this.envelope = stackEnv;
 
-        // The direct path: the leak lives inside the blanked region, and it is
-        // the proof that sound is making the trip at all.
-        const direct = pickPeak(stackEnv, 1, blankLag + EDGE_GUARD_SAMPLES);
+        // The direct path is the global maximum anywhere in the window — it is
+        // the loudest thing by a wide margin — and its lag reveals the total
+        // output-plus-input latency of the chain, which is worth showing.
+        const direct = pickPeak(stackEnv, 1, CAPTURE_N - chirp.length);
         this.directLag = direct ? direct.lag : 0;
         this.directVal = direct ? direct.value : 0;
 
-        const peak = pickPeak(stackEnv, searchLo, maxLag);
+        const searchLo = Math.round(this.directLag) + relLo;
+        const maxLag = Math.min(Math.round(this.directLag) + relHi, CAPTURE_N - chirp.length);
+        const peak = direct ? pickPeak(stackEnv, searchLo, maxLag) : null;
         // Prominence, not global SNR. See MIN_PROMINENCE.
         this.noiseLevel = peak ? localBaseline(stackEnv, Math.round(peak.lag), searchLo, maxLag) : 0;
         this.snr = peak && this.noiseLevel > 1e-12 ? peak.value / this.noiseLevel : 0;
@@ -379,13 +416,18 @@ export class SonarInstrument extends Instrument {
     ctx.clearRect(0, 0, w, h);
 
     const env = this.envelope;
+    // The horizontal axis is range, i.e. lag measured FROM THE DIRECT PATH.
+    // Plotting absolute lag would put every target hundreds of milliseconds
+    // to the right, offset by whatever the audio chain's latency happens to
+    // be — a number that has nothing to do with distance.
+    const d0 = Math.round(this.directLag);
     const maxLag = Math.round(rangeToLag(MAX_RANGE_M, this.sampleRate));
-    // Shade what is actually excluded, which is the blanking plus the edge
-    // guard — not just the blanking. Showing a narrower exclusion than the
-    // one the peak search uses would misrepresent where a reading can come
-    // from.
+    // Shade what is actually excluded: the blanking plus the edge guard, not
+    // just the blanking. A narrower shaded zone than the peak search uses
+    // would misrepresent where a reading can come from.
     const searchLo = Math.round((BLANK_MS / 1000) * this.sampleRate) + EDGE_GUARD_SAMPLES;
-    const xOf = (lag: number) => (lag / maxLag) * w;
+    /** rel = lag relative to the direct path. */
+    const xOf = (rel: number) => (rel / maxLag) * w;
 
     // Range grid, in metres.
     ctx.font = "9px ui-monospace, monospace";
@@ -404,7 +446,7 @@ export class SonarInstrument extends Instrument {
     ctx.fillRect(0, 0, xOf(searchLo), h - 14);
     ctx.fillStyle = '#6a6274';
     ctx.textAlign = 'left';
-    ctx.fillText('blanked', 3, 4);
+    ctx.fillText(this.directVal > 0 ? 'blanked (from direct path)' : 'blanked', 3, 4);
 
     if (!env) {
       ctx.fillStyle = '#3a3a48';
@@ -416,13 +458,18 @@ export class SonarInstrument extends Instrument {
     }
 
     let max = 1e-9;
-    for (let i = searchLo; i < maxLag; i++) if (env[i] > max) max = env[i];
+    for (let rel = searchLo; rel < maxLag; rel++) {
+      const i = d0 + rel;
+      if (i < env.length && env[i] > max) max = env[i];
+    }
 
     ctx.beginPath();
-    for (let lag = 0; lag < maxLag; lag++) {
-      const x = xOf(lag);
-      const y = (h - 16) - (env[lag] / max) * (h - 26);
-      if (lag === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    for (let rel = 0; rel < maxLag; rel++) {
+      const i = d0 + rel;
+      const v = i >= 0 && i < env.length ? env[i] : 0;
+      const x = xOf(rel);
+      const y = (h - 16) - (v / max) * (h - 26);
+      if (rel === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.strokeStyle = '#ffcc66';
     ctx.lineWidth = 1.2;
