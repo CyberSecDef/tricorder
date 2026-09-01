@@ -110,6 +110,17 @@ export class SonarInstrument extends Instrument {
   private snr = 0;
   private agreeing = 0;
   private lastRanges: number[] = [];
+  /**
+   * The direct speaker-to-microphone leak.
+   *
+   * It is the one return guaranteed to exist — the two are centimetres apart —
+   * which makes it the reference that says whether the audio chain works at
+   * all. Without it, "no consistent return" is ambiguous between a difficult
+   * room and no sound leaving the phone, and those need completely different
+   * responses.
+   */
+  private directLag = 0;
+  private directVal = 0;
   private status = '';
 
   protected async build(root: HTMLElement): Promise<void> {
@@ -176,9 +187,13 @@ export class SonarInstrument extends Instrument {
     const rSnr = readout('Peak prominence', { unit: '×', note: 'above its surroundings' });
     const rSpread = readout('Ping spread', { unit: 'mm', note: `across ${PINGS} pings` });
     const rRes = readout('Resolution', { unit: 'mm', note: '' });
+    const rDirect = readout('Direct path', { note: 'speaker → mic — proves audio works' });
+    const rPings = readout('Ping results', { note: '', wide: true });
 
     append(scroll, rRange.node,
-      el('div', { class: 'grid' }, rSnr.node, rSpread.node, rRes.node));
+      el('div', { class: 'grid' }, rSnr.node, rSpread.node, rRes.node),
+      el('div', { class: 'grid' }, rDirect.node),
+      rPings.node);
 
     // --- A-scope ----------------------------------------------------------
     const scope = autoCanvas();
@@ -228,6 +243,18 @@ export class SonarInstrument extends Instrument {
       rRes.set(fmt(SPEED_OF_SOUND / (2 * this.sampleRate) * 1000, 2),
         `1 sample @ ${fmt(this.sampleRate / 1000, 1)} kHz`);
 
+      rDirect.set(this.directVal > 0 ? 'HEARD' : this.lastRanges.length ? 'ABSENT' : '—',
+        this.directVal > 0
+          ? `lag ${fmt(this.directLag, 1)} samples · ${fmt(lagToRange(this.directLag, this.sampleRate) * 100, 1)} cm`
+          : this.lastRanges.length ? 'no sound reaching the mic — check the mute switch' : '');
+      rDirect.setState(this.directVal > 0 ? 'ok' : this.lastRanges.length ? 'bad' : 'idle');
+
+      rPings.set(this.lastRanges.length ? `${this.agreeing}/${this.lastRanges.length}` : '—',
+        this.lastRanges.length
+          ? this.lastRanges.map((v) => `${v.toFixed(2)}`).join('  ') + ' m'
+          : 'individual ping ranges appear here');
+      rPings.setState(!this.lastRanges.length ? 'idle' : this.agreeing >= MIN_AGREE ? 'ok' : 'warn');
+
       this.drawScope(scope);
     });
   }
@@ -244,7 +271,8 @@ export class SonarInstrument extends Instrument {
     btn.textContent = 'Pinging…';
     this.status = '';
     const ranges: number[] = [];
-    const stack = new Float32Array(FFT_N);
+    // Holds the coherently averaged raw capture, so it is capture-length.
+    const stack = new Float32Array(CAPTURE_N);
     let stacked = 0;
 
     // One search window, used for BOTH the per-ping peaks and the stacked
@@ -283,7 +311,6 @@ export class SonarInstrument extends Instrument {
         if (!win) { this.status = '!<strong>No samples captured.</strong> The microphone worklet is not delivering audio. Leave and re-enter the screen to re-acquire it.'; break; }
 
         const env = matchedFilter(win, chirp, FFT_N);
-        for (let i = 0; i < FFT_N; i++) stack[i] += env[i];
         stacked++;
 
         const peak = pickPeak(env, searchLo, maxLag);
@@ -293,14 +320,19 @@ export class SonarInstrument extends Instrument {
       }
 
       if (stacked) {
-        // Coherently averaged envelope: noise averages down, a real return
-        // does not.
-        for (let i = 0; i < FFT_N; i++) stack[i] /= stacked;
-        this.envelope = stack;
+        for (let i = 0; i < CAPTURE_N; i++) stack[i] /= stacked;
+        const stackEnv = matchedFilter(stack.subarray(0, CAPTURE_N), chirp, FFT_N);
+        this.envelope = stackEnv;
 
-        const peak = pickPeak(stack, searchLo, maxLag);
+        // The direct path: the leak lives inside the blanked region, and it is
+        // the proof that sound is making the trip at all.
+        const direct = pickPeak(stackEnv, 1, blankLag + EDGE_GUARD_SAMPLES);
+        this.directLag = direct ? direct.lag : 0;
+        this.directVal = direct ? direct.value : 0;
+
+        const peak = pickPeak(stackEnv, searchLo, maxLag);
         // Prominence, not global SNR. See MIN_PROMINENCE.
-        this.noiseLevel = peak ? localBaseline(stack, Math.round(peak.lag), searchLo, maxLag) : 0;
+        this.noiseLevel = peak ? localBaseline(stackEnv, Math.round(peak.lag), searchLo, maxLag) : 0;
         this.snr = peak && this.noiseLevel > 1e-12 ? peak.value / this.noiseLevel : 0;
 
         // Consistency is the real test. Find the largest cluster of pings that
@@ -315,6 +347,14 @@ export class SonarInstrument extends Instrument {
 
         if (cluster.length >= MIN_AGREE && this.snr >= MIN_PROMINENCE) {
           this.rangeM = cluster[cluster.length >> 1];
+        } else if (this.directVal <= 0 || this.snr === 0) {
+          this.rangeM = null;
+          this.status = '!<strong>The microphone never heard the chirp.</strong> Not even the direct path from the speaker, which is only centimetres away and should be the loudest thing in every ping. That is not a difficult room — no sound is leaving the phone.' +
+            '<ul>' +
+            '<li><strong>Check the hardware mute switch.</strong> On iOS it silences Web Audio output completely. This is the usual cause.</li>' +
+            '<li>Turn the media volume up, and raise the Level slider.</li>' +
+            '<li>If headphones or a Bluetooth speaker are connected, the chirp is going there.</li>' +
+            '</ul>';
         } else {
           this.rangeM = null;
           this.status = cluster.length < MIN_AGREE && ranges.length
