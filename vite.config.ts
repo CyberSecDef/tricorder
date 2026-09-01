@@ -78,5 +78,19 @@ export default defineConfig({
       ? { https: { key: readFileSync(KEY), cert: readFileSync(CRT) } }
       : {}),
   },
-  build: { target: 'es2022' },
+  build: {
+    target: 'es2022',
+    /**
+     * Never inline the AudioWorklet.
+     *
+     * Vite inlines small assets as `data:` URLs, and the sonar worklet is well
+     * under the threshold — but `audioWorklet.addModule()` on a data URL is
+     * not reliably supported, and it is exactly the kind of thing that works
+     * in desktop Chromium and fails on WebKit. Emit it as a real file.
+     */
+    assetsInlineLimit(filePath: string) {
+      if (/sonar-worklet\.js$/.test(filePath)) return false;
+      return undefined;   // default behaviour for everything else
+    },
+  },
 });

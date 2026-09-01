@@ -154,3 +154,101 @@ export function haversine(
     Math.cos(lat1 * p) * Math.cos(lat2 * p) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
 }
+
+/** In-place inverse FFT, via the conjugate identity. */
+export function ifft(re: Float32Array, im: Float32Array): void {
+  const n = re.length;
+  for (let i = 0; i < n; i++) im[i] = -im[i];
+  fft(re, im);
+  const inv = 1 / n;
+  for (let i = 0; i < n; i++) { re[i] *= inv; im[i] = -im[i] * inv; }
+}
+
+/**
+ * Linear FM chirp, Hann-windowed (§8.10).
+ *
+ * The window matters as much as the sweep: an unwindowed chirp has abrupt
+ * ends, and those discontinuities produce range sidelobes in the matched
+ * filter output that look exactly like additional targets.
+ */
+export function makeChirp(
+  sampleRate: number, durationS: number, f0: number, f1: number,
+): Float32Array {
+  const n = Math.round(sampleRate * durationS);
+  const out = new Float32Array(n);
+  const w = hann(n);
+  const k = (f1 - f0) / durationS;   // Hz per second
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate;
+    // Instantaneous phase is the integral of the linear frequency ramp.
+    const phase = 2 * Math.PI * (f0 * t + 0.5 * k * t * t);
+    out[i] = Math.sin(phase) * w[i];
+  }
+  return out;
+}
+
+/**
+ * Matched-filter cross-correlation, returning the analytic ENVELOPE.
+ *
+ * Computed as X·conj(H) in the frequency domain, then the negative-frequency
+ * half is zeroed and the positive half doubled before the inverse transform.
+ * That produces the analytic signal, whose magnitude is the true envelope.
+ *
+ * The alternative — taking the absolute value of the real correlation — leaves
+ * the output oscillating at the carrier, so the peak is a picket fence of
+ * near-equal spikes rather than one lobe, and peak-picking lands on an
+ * arbitrary member of it. That is a range error of a few millimetres per cycle
+ * at these frequencies, which matters when the resolution is 3.6 mm.
+ *
+ * ⚠️ `n` must be a power of two AND at least `signal.length +
+ * reference.length`. FFT correlation is CIRCULAR: with n merely equal to the
+ * signal length, the correlation peak of anything near lag zero wraps around
+ * into the far end of the array. In this application that is not a subtlety —
+ * the speaker-to-microphone leak sits at lag ~0 and dominates everything, so
+ * its wrapped skirt appears at maximum range and outweighs any real echo.
+ * Measured: a leak peak of 89.8 put 83.2 at the last sample while the genuine
+ * 2 m echo was 26.9, so peak-picking chose 14.6 m every time. Zero-padding to
+ * signal+reference makes the correlation linear and the problem disappears.
+ */
+export function matchedFilter(
+  signal: Float32Array, reference: Float32Array, n: number,
+): Float32Array {
+  const xr = new Float32Array(n);
+  const xi = new Float32Array(n);
+  const hr = new Float32Array(n);
+  const hi = new Float32Array(n);
+  xr.set(signal.subarray(0, Math.min(signal.length, n)));
+  hr.set(reference.subarray(0, Math.min(reference.length, n)));
+
+  fft(xr, xi);
+  fft(hr, hi);
+
+  for (let i = 0; i < n; i++) {
+    const a = xr[i], b = xi[i], c = hr[i], d = -hi[i];   // conj(H)
+    xr[i] = a * c - b * d;
+    xi[i] = a * d + b * c;
+  }
+
+  // Analytic signal: keep DC and Nyquist, double the positive frequencies,
+  // zero the negative ones.
+  const half = n >> 1;
+  for (let i = 1; i < half; i++) { xr[i] *= 2; xi[i] *= 2; }
+  for (let i = half + 1; i < n; i++) { xr[i] = 0; xi[i] = 0; }
+
+  ifft(xr, xi);
+
+  const env = new Float32Array(n);
+  for (let i = 0; i < n; i++) env[i] = Math.hypot(xr[i], xi[i]);
+  return env;
+}
+
+/** Speed of sound in dry air at 20 °C, m/s. */
+export const SPEED_OF_SOUND = 343;
+
+/** Round-trip lag in samples to one-way range in metres. */
+export const lagToRange = (lag: number, sampleRate: number): number =>
+  (lag / sampleRate) * SPEED_OF_SOUND / 2;
+
+/** One-way range in metres to round-trip lag in samples. */
+export const rangeToLag = (m: number, sampleRate: number): number =>
+  (2 * m / SPEED_OF_SOUND) * sampleRate;

@@ -93,7 +93,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | 7 | Magnetic anomaly detector | Medium | DeviceOrientation + DeviceMotion | ⛔ built and correct, but **no signal exists on iOS 26.6.1** — not in the rail (§8.7) |
 | 8 | Ultrasonic Doppler motion | Medium | Web Audio | ✅ built and **verified on device** — detects motion and its direction |
 | 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU | ✅ built and **verified on device** — WebGPU, fp16, 252 px |
-| 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | not started |
+| 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | ✅ built; not yet exercised on hardware |
 | — | Diagnostics | — | — | ✅ built (§9) |
 | — | Magnetic residual probe | — | DeviceOrientation + DeviceMotion | ✅ built — the harness that answered §11 q.2 |
 
@@ -1046,7 +1046,11 @@ Matched-filter time-of-flight ranging. **Requires the `raw` mic profile (§5)** 
   "measure once" for engine-level questions, and that was wrong.
 - **M3** — ✅ **built and verified on device.** Ultrasonic Doppler, detecting motion and discriminating approach from recede. The sample rate is 48 kHz (§11 q.3), so the carrier goes at 20 kHz with the full band available. Handle the §0.7 graph-termination trap in the emit/analyse path — it will bite here too.
 - **M4** — ✅ **built and verified on device.** ML depth scanner. WebGPU is present in all three browsers on iOS 26, so it is the expected route and WASM a genuine fallback. Verified end to end on the WASM path (headless has no GPU adapter): model loads, inference runs, depth map renders. Needs a device to exercise WebGPU and to see real frame rates.
-- **M5** — Sonar, if M1–M4 are solid.
+- **M5** — ✅ **built.** Sonar. The DSP is verified against synthetic echoes to
+  sub-millimetre accuracy, including a 1% echo against a full-strength direct
+  path; the browser pipeline, worklet and frame-stamped capture all run. What
+  headless cannot provide is an acoustic path from speaker to microphone, so
+  real ranging needs a device.
 
 ---
 

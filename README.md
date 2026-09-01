@@ -16,7 +16,7 @@ Implementation constraints, instrument specs and the open questions live in
 [`TRICORDER_HANDOFF.md`](TRICORDER_HANDOFF.md). Section references throughout
 the source point back at it.
 
-## Status — M1–M4 built
+## Status — M1–M5 built; all ten instruments
 
 | # | Instrument | State |
 |---|---|---|
@@ -31,7 +31,7 @@ the source point back at it.
 | 7 | Magnetic anomaly detector | ⛔ built and correct, but no signal exists on iOS 26.6.1 — hidden from the rail |
 | 8 | Ultrasonic Doppler | ✅ built and **verified on device** — detects motion and direction |
 | 9 | ML depth scanner | ✅ built and **verified on device** — WebGPU, fp16, 252 px |
-| 10 | Acoustic sonar | M5 — stub |
+| 10 | Acoustic sonar | ✅ built — needs on-device verification |
 
 Nothing has been verified on a physical iPhone yet. See
 [On-device verification](#on-device-verification).
