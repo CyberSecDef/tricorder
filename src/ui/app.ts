@@ -51,17 +51,22 @@ export class App {
 
     this.rail = el('nav', { class: 'rail' });
     this.stage = el('div', { class: 'stage' });
-    const body = el('div', { class: 'body' }, this.rail, this.stage);
 
     this.status = el('div', { class: 'bar__title', style: 'font-size:12px;letter-spacing:.1em', text: '' });
     const footer = el(
       'div',
       { class: 'bar', style: '--bar-h:30px;min-height:30px' },
-      el('div', { class: 'elbow elbow--bl', style: 'height:30px' }),
       el('div', { class: 'bar__fill', style: 'background:var(--lc-rust)' }, this.status),
     );
 
-    append(root, header, body, footer);
+    // The footer sits in a column BESIDE the rail rather than beneath it, so
+    // the rail runs the full height of the screen and its rust block reaches
+    // the bottom edge uninterrupted. Stacking the footer under both would put
+    // a 4px gap across the rail and break that column in two.
+    const main = el('div', { class: 'main' }, this.stage, footer);
+    const body = el('div', { class: 'body' }, this.rail, main);
+
+    append(root, header, body);
     this.buildRail();
 
     // iOS suspends the AudioContext and drops the wake lock on background.
