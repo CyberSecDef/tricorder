@@ -98,6 +98,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | — | Magnetic residual probe | — | DeviceOrientation + DeviceMotion | ✅ built — the harness that answered §11 q.2 |
 | + | Barcode / QR scanner | Easy | Camera + ZXing WASM | ✅ built — beyond the original ten; see §14 |
 | + | Pulse (PPG) | Medium | Camera + torch | ✅ built — beyond the original ten; see §15 |
+| + | Vizer — colour distribution | Easy | Camera | ✅ built — beyond the original ten; see §16 |
 
 Ship 1–5 as a working v1 before touching 6+.
 
@@ -1316,3 +1317,45 @@ waveform with a dicrotic notch, 1% modulation on a large DC level, plus drift
 and noise. It recovers 45–200 bpm to within a few tenths across that range and
 scores pure noise at 2.1x confidence against a real pulse's 25x or better,
 which is what the 8x reporting threshold sits between.
+
+---
+
+## 16. Vizer — an addition
+
+Every pixel binned by hue, the bins ordered red to violet, the height of each
+band being how much of that colour the camera can see. A blue room lights the
+blue end and leaves the red end dark. A dim reference gradient runs underneath,
+so an absent colour reads as a visible gap rather than as nothing — without it
+you cannot tell "no red in the room" from "the axis does not go that far".
+
+**It is a colour distribution, not a spectrometer**, and the distinction is
+worth keeping. A camera has three broad, heavily overlapping channels, so
+infinitely many spectral power distributions produce identical RGB. Nothing
+here can distinguish monochromatic yellow from red and green mixed — and
+neither can your eye, which is the only reason screens work at all. The
+nanometre labels are an approximate convention that makes the axis readable,
+and the UI says so rather than implying a measurement.
+
+**There is deliberately no FFT in it.** The request said to use one, and it is
+the natural instinct — "spectrum" means Fourier in most of this codebase. But
+an FFT of an image yields *spatial* frequencies: texture, edge density, how
+busy the picture is. That is a real quantity and a completely different one,
+and it would say nothing whatever about colour. Binning by hue is the operation
+that answers the question asked.
+
+Two decisions in `lib/huespectrum.ts` worth carrying forward:
+
+- **Weight by saturation × value, not a flat pixel count.** A nearly-grey pixel
+  has a hue arithmetically but carries almost no colour information, and
+  counting it equally washes every scene into a flat smear across the whole
+  spectrum. Dark pixels are excluded for the same reason: hue gets very noisy
+  as value approaches zero.
+- **Magentas are counted separately, and that is not a technicality.** No
+  wavelength produces magenta — it is what the eye reports when the long and
+  short cones fire without the middle one. Placing it on a wavelength axis
+  would be inventing a physical claim, so it gets its own readout.
+
+16 tests cover the binning against synthetic scenes: single colours landing on
+the right hue, a blue scene containing *exactly zero* red, mixed scenes in
+proportion, greys and near-blacks excluded rather than smeared, magenta
+classified as non-spectral, and the wavelength labels running the right way.

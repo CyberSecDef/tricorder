@@ -672,3 +672,21 @@ body {
   border-bottom: 1px solid #1e1e28;
   word-break: break-all;
 }
+
+/* ---------- Vizer ---------------------------------------------------------
+   Small preview: the spectrum is the instrument, the camera is context. */
+.vizer__preview {
+  position: relative;
+  flex: 0 0 auto;
+  height: min(22dvh, 170px);
+  background: #000;
+  overflow: hidden;
+  border-radius: 2px;
+}
+.vizer__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
