@@ -422,7 +422,7 @@ See §5 for the constraint profiles. Beyond those:
 - Use **AudioWorklet** for anything sample-accurate (sonar). `ScriptProcessorNode` is deprecated and glitches. AudioWorklet works on iOS 14.5+.
 - The bottom speaker and bottom mic are physically adjacent — direct coupling will dominate any sonar return. Plan to blank the first ~1–2 ms of the correlation.
 - ⚠️ **The analysis graph must terminate at `destination` or WebKit never feeds it.** See §5 — this is the one that will cost you a debugging session, and it will not reproduce on a desktop.
-- **Still unconfirmed on the reference device:** the actual `audioCtx.sampleRate`. The diagnostics screen reports it; nobody has yet written it down. It decides the ultrasonic ceiling for Instruments 8 and 10, so read it before designing either.
+- **MEASURED — 48000 Hz on the reference device.** Nyquist 24 kHz, so the full 15–22 kHz band is usable. Instrument 8 can put its carrier at 20 kHz and Instrument 10 can sweep to 22 kHz; neither needs the narrowed 44.1 kHz variant. Read it at runtime anyway — it is a property of the hardware and the audio route, not of the app.
 
 ### Camera
 ```js
@@ -892,7 +892,7 @@ Matched-filter time-of-flight ranging. **Requires the `raw` mic profile (§5)** 
   a result. Anything that gates a build decision should be reproduced on a
   separate occasion before it is written down as settled — this document said
   "measure once" for engine-level questions, and that was wrong.
-- **M3** — Ultrasonic Doppler. **Next.** Read the runtime sample rate first (§7) — it sets the carrier and is still unrecorded. Handle the §0.7 graph-termination trap in the emit/analyse path.
+- **M3** — Ultrasonic Doppler. **Next, and unblocked.** The sample rate is 48 kHz (§11 q.3), so the carrier goes at 20 kHz with the full band available. Handle the §0.7 graph-termination trap in the emit/analyse path — it will bite here too.
 - **M4** — ML depth scanner. Check the WebGPU matrix (§1) before committing to the WebGPU path. **Already checked: WebGPU is present in Chrome on iOS 26**, so the WebGPU path is viable and WASM is a fallback rather than the expected route.
 - **M5** — Sonar, if M1–M4 are solid.
 
@@ -926,10 +926,11 @@ Engine-level questions — measure once, the answer holds for all three browsers
    about method rather than result: the static case is a better experiment
    than the sweep, and signal A is the weaker signal rather than the safer
    fallback.
-3. ⬜ **STILL OPEN.** Actual `audioCtx.sampleRate` on the device (48 k vs
-   44.1 k) — determines the ultrasonic ceiling. The diagnostics and spectrum
-   screens both display it; it has simply not been written down. **Read this
-   before starting M3.**
+3. ✅ **ANSWERED. 48000 Hz**, Nyquist 24 kHz, ultrasonic ceiling 22 kHz usable.
+   Instrument 8's carrier can sit at 20 kHz and Instrument 10 can sweep the
+   full 15–22 kHz; the narrowed 44.1 kHz variants are not needed on this
+   device. Keep reading it at runtime regardless — it depends on the hardware
+   and the active audio route, not on the app.
 4. ⬜ **STILL OPEN.** Whether `track.getCapabilities()` exposes `exposureTime` /
    `iso` on this iOS version. If it does, a **calibrated lux meter** becomes
    possible via `L ≈ (N²/t)·(K/S)` with fixed aperture N and K ≈ 12.5 — worth

@@ -133,8 +133,9 @@ WKWebView-versus-Safari question is not a version question:
    Compass app agrees. Signal A is dead too. A first session recorded 691× the
    noise floor and has never reproduced — see §8.7 of the handoff for the full
    story and four candidate explanations.
-3. **Audio sample rate** — Diagnostics → Runtime. Expect 48 kHz on iOS 26,
-   giving a 22 kHz ultrasonic ceiling. Confirm rather than assume.
+3. **Audio sample rate** — **answered: 48000 Hz**, Nyquist 24 kHz, so the full
+   15–22 kHz band is usable and neither Instrument 8 nor 10 needs its narrowed
+   44.1 kHz variant.
 6. **WebGPU exposure** — **answered.** Present in Chrome on iOS 26, so
    WKWebView does expose it and this is not a Safari-only capability.
    Instrument 9 can commit to the WebGPU path; the WASM fallback stays as a
@@ -157,6 +158,7 @@ WKWebView-versus-Safari question is not a version question:
 | §11 q.6 WebGPU | **Answered.** Present in **Chrome** on iOS 26 — WKWebView exposes it, not Safari only |
 | §11 q.2 residual | **Answered negatively.** An earlier positive result was retracted — no magnetic signal reaches the web layer on iOS 26.6.1 |
 | Rangefinder | Pass — uncalibrated it read 1.76 m at 2.00 m (−12%); after two-point calibration, accurate to inches |
+| §11 q.3 sample rate | **Answered.** 48000 Hz, Nyquist 24 kHz — full 15–22 kHz ultrasonic band usable |
 
 Tested in Chrome. Safari and Edge still outstanding for the §10 M1 gate.
 
