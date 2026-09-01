@@ -832,6 +832,15 @@ const depth = await pipeline('depth-estimation',
 - **WebGPU availability is the one place the three browsers may genuinely diverge** — Safari 26+ has it on by default; whether WKWebView exposes it to Chrome/Edge on the same iOS version needs verifying on device (§11). Detect `'gpu' in navigator` and fall back to WASM. Tell the user which backend is running and that WASM will be slow.
   **MEASURED:** WebGPU **is** present in Chrome on iOS 26.6.1, so WKWebView does expose it. Commit to the WebGPU path; keep WASM as a genuine fallback rather than an expected route for two browsers out of three.
 - Downscale input to 256×256 or 384×384 before inference. Full 518×518 is too slow on a phone.
+- ⚠️ **`dtype: 'q8'` is the wrong default on a GPU.** This document recommends
+  q8, and that is right for the WASM path — but int8 weights are not natively
+  accelerated, so WebGPU dequantises as it goes and can end up *slower* than
+  half precision, which is the format the hardware works in. Use `fp16` (or
+  `q4f16`) on WebGPU and keep `q8` for CPU. The instrument ships a selector for
+  both weight format and input resolution, because the right combination is
+  device-specific and the only way to find it is to measure on the device.
+  Input cost scales roughly with the square of the resolution, so it is the
+  larger of the two levers.
 - Expect roughly 5–15 FPS on recent iPhone hardware via WebGPU; single-digit or worse on WASM. Run inference in a loop decoupled from the render loop and show the latest available map.
 - Model download is ~25–50 MB. Cache it (Transformers.js uses the Cache API) and show a first-run progress bar. **The cache is per-browser** — a user who tries the app in both Safari and Chrome downloads it twice.
 - Output is **relative inverse depth**, not meters. Say so in the UI.

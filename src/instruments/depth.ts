@@ -33,8 +33,26 @@ import { acquireCamera, CameraUnavailableError, type CameraHandle } from '../sen
 import { TURBO, GRAY } from '../lib/colormap';
 
 const MODEL = 'onnx-community/depth-anything-v2-small';
-/** §8.9: full 518×518 is too slow on a phone. */
-const INPUT_SIZE = 256;
+
+/**
+ * Weight formats, in the order the cycle button offers them.
+ *
+ * §8.9 recommends `q8`, and that is right for the CPU path — but it is a poor
+ * default on a GPU. int8 weights are not natively accelerated, so WebGPU
+ * dequantises on the fly and can end up SLOWER than half precision, which is
+ * the GPU's native format. Hence a different default per backend, and a
+ * selector, because the only way to know what a given phone prefers is to
+ * measure it.
+ */
+const DTYPES = ['fp16', 'q4f16', 'q8', 'fp32'] as const;
+type Dtype = (typeof DTYPES)[number];
+
+/**
+ * Inference resolution. §8.9 warns that the model's native 518×518 is too slow
+ * on a phone. Cost scales roughly with the square, so 192 is about 1.8× cheaper
+ * than 256 and 4× cheaper than 384 — the biggest single lever on frame rate.
+ */
+const SIZES = [192, 256, 384] as const;
 /** Smoothing for the normalisation bounds. Low and slow — this is the anti-flicker. */
 const BOUNDS_ALPHA = 0.08;
 
@@ -50,6 +68,10 @@ export class DepthInstrument extends Instrument {
   private loading = false;
   private backend: 'webgpu' | 'wasm' = 'wasm';
   private backendReason = '';
+
+  private dtype: Dtype = 'fp16';
+  private inputSize: number = 256;
+  private imageData: ImageData | null = null;
 
   private work = document.createElement('canvas');
   private out = document.createElement('canvas');
@@ -80,6 +102,8 @@ export class DepthInstrument extends Instrument {
     const picked = await pickBackend();
     this.backend = picked.backend;
     this.backendReason = picked.reason;
+    // int8 on a GPU is a false economy; half precision is its native format.
+    this.dtype = this.backend === 'webgpu' ? 'fp16' : 'q8';
 
     const statusBox = el('div');
     append(scroll,
@@ -96,7 +120,7 @@ export class DepthInstrument extends Instrument {
       return;
     }
     if (!this.isMounted) { this.cam.release(); return; }
-    this.onCleanup(() => { this.running = false; this.cam?.release(); });
+    this.onCleanup(() => { this.teardownPipe(); this.cam?.release(); });
 
     const video = this.cam.video;
     video.className = 'depth__video';
@@ -104,8 +128,8 @@ export class DepthInstrument extends Instrument {
     this.display = canvas;
     append(scroll, el('div', { class: 'depth' }, video, canvas));
 
-    this.work.width = INPUT_SIZE;
-    this.work.height = INPUT_SIZE;
+    this.work.width = this.inputSize;
+    this.work.height = this.inputSize;
 
     // --- model load -------------------------------------------------------
     const bar = el('div', { class: 'bar__prog' });
@@ -125,6 +149,30 @@ export class DepthInstrument extends Instrument {
 
     append(scroll, section('Performance'),
       el('div', { class: 'grid' }, rBackend.node, rInfer.node, rFps.node, rRange.node));
+
+    // --- tuning -----------------------------------------------------------
+    const btnDtype = el('button', { class: 'btn btn--alt', type: 'button' }, `Weights: ${this.dtype}`);
+    btnDtype.addEventListener('click', () => {
+      this.dtype = DTYPES[(DTYPES.indexOf(this.dtype) + 1) % DTYPES.length];
+      btnDtype.textContent = `Weights: ${this.dtype}`;
+      // A different weight format is a different file, so the model reloads.
+      this.teardownPipe();
+      btnLoad.disabled = false;
+      btnLoad.textContent = `Load ${this.dtype} model`;
+    });
+    const btnSize = el('button', { class: 'btn btn--alt', type: 'button' }, `Input: ${this.inputSize}px`);
+    btnSize.addEventListener('click', () => {
+      this.inputSize = SIZES[(SIZES.indexOf(this.inputSize as any) + 1) % SIZES.length];
+      this.work.width = this.work.height = this.inputSize;
+      btnSize.textContent = `Input: ${this.inputSize}px`;
+    });
+
+    append(scroll, section('Tuning'),
+      el('div', { class: 'btn-row' }, btnDtype, btnSize),
+      notice('warn',
+        '<strong>These are the two levers on frame rate, and the right setting is device-specific.</strong> ' +
+        'Weight format: <code>fp16</code> is half precision and is usually fastest on a GPU, because it is what the hardware works in natively; <code>q8</code> is int8 and is usually fastest on the CPU path but can be <em>slower</em> on a GPU, which has to dequantise as it goes. ' +
+        'Input size: cost scales roughly with the square, so 192 is about 1.8× cheaper than 256. Changing the weight format downloads a different file; changing the input size is free and takes effect on the next frame.'));
 
     const btnMap = el('button', { class: 'btn btn--alt', type: 'button' }, 'Colormap: turbo');
     btnMap.addEventListener('click', () => {
@@ -171,13 +219,25 @@ export class DepthInstrument extends Instrument {
 
       rBackend.set(this.backend.toUpperCase(), this.backendReason);
       rBackend.setState(this.backend === 'webgpu' ? 'ok' : 'warn');
-      rInfer.set(this.inferMs ? fmt(this.inferMs, 0) : '—', `${INPUT_SIZE}×${INPUT_SIZE} input`);
+      rInfer.set(this.inferMs ? fmt(this.inferMs, 0) : '—',
+        `${this.inputSize}×${this.inputSize} · ${this.dtype}`);
       rFps.set(this.fps ? fmt(this.fps, 1) : '—', this.pipe ? '' : 'model not loaded');
       rRange.set(this.loEMA === null ? '—' : `${fmt(this.loEMA, 2)} … ${fmt(this.hiEMA!, 2)}`,
         'relative inverse depth — unitless');
 
       this.draw();
     });
+  }
+
+  /** Drop the pipeline and its GPU/WASM session so a reload is a clean start. */
+  private teardownPipe(): void {
+    this.running = false;
+    const p = this.pipe;
+    this.pipe = null;
+    this.depth = null;
+    this.loEMA = this.hiEMA = null;
+    this.inferMs = 0;
+    try { p?.dispose?.(); } catch { /* nothing useful to do */ }
   }
 
   private async load(
@@ -205,7 +265,7 @@ export class DepthInstrument extends Instrument {
       const files = new Map<string, number>();
       this.pipe = await pipeline('depth-estimation', MODEL, {
         device: this.backend,
-        dtype: 'q8',
+        dtype: this.dtype,
         progress_callback: (p: any) => {
           if (p.status === 'progress' && typeof p.progress === 'number') {
             files.set(p.file, p.progress);
@@ -244,7 +304,7 @@ export class DepthInstrument extends Instrument {
 
       const t0 = performance.now();
       try {
-        ctx.drawImage(video, 0, 0, INPUT_SIZE, INPUT_SIZE);
+        ctx.drawImage(video, 0, 0, this.inputSize, this.inputSize);
         const img = RawImage.fromCanvas(this.work);
         const res: any = await this.pipe(img);
         if (!this.isMounted) return;
@@ -307,7 +367,10 @@ export class DepthInstrument extends Instrument {
     const w = this.depthW, h = this.depthH;
     if (this.out.width !== w || this.out.height !== h) { this.out.width = w; this.out.height = h; }
     const octx = this.out.getContext('2d')!;
-    const img = octx.createImageData(w, h);
+    if (!this.imageData || this.imageData.width !== w || this.imageData.height !== h) {
+      this.imageData = octx.createImageData(w, h);
+    }
+    const img = this.imageData;
     const px = img.data;
     const lo = this.loEMA, span = Math.max(this.hiEMA - lo, 1e-6);
     const lut = this.lut;
