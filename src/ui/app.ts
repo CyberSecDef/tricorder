@@ -40,7 +40,7 @@ export class App {
 
     const header = el(
       'div',
-      { class: 'bar' },
+      { class: 'bar bar--head' },
       el('div', { class: 'elbow elbow--tl' }),
       el('div', { class: 'bar__fill' }, this.subtitle, this.title),
       el('div', { class: 'blocks' },

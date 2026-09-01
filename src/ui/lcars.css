@@ -32,6 +32,12 @@
 
   --rail-w:    78px;
   --bar-h:     44px;
+  /* Total height of the top-left elbow. Taller than the bar, because the
+     elbow's stem has to descend below the arm for the L to exist at all. */
+  --elbow-h:   76px;
+  /* How far the arm runs past the rail before the header bar picks it up.
+     This overlap is what makes the two read as one continuous piece. */
+  --elbow-ext: 40px;
   --gap:       4px;
   --elbow-r:   58px;   /* outer sweep */
   --inner-r:   26px;   /* concave inner corner */
@@ -41,7 +47,10 @@
 }
 
 @media (min-width: 620px) {
-  :root { --rail-w: 132px; --bar-h: 52px; --elbow-r: 72px; --inner-r: 34px; }
+  :root {
+    --rail-w: 132px; --bar-h: 52px; --elbow-r: 72px; --inner-r: 34px;
+    --elbow-h: 92px; --elbow-ext: 56px;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -94,16 +103,20 @@ body {
   background: var(--bg);
 }
 
-/* Top-left elbow: vertical stem on the left, arm running right. */
+/* Top-left elbow.
+   The stem is exactly one rail wide, so it lines up with the buttons beneath
+   it, and the arm is exactly one bar tall and runs past the rail to meet the
+   header fill. The knockout is the rectangle below the arm and right of the
+   stem; rounding its top-left corner produces the concave inner sweep. */
 .elbow--tl {
-  width: var(--rail-w);
-  height: var(--bar-h);
+  width: calc(var(--rail-w) + var(--elbow-ext));
+  height: var(--elbow-h);
   border-top-left-radius: var(--elbow-r);
 }
 .elbow--tl::after {
   right: 0; bottom: 0;
-  width: calc(100% - 30px);
-  height: calc(100% - 18px);
+  width: var(--elbow-ext);
+  height: calc(var(--elbow-h) - var(--bar-h));
   border-top-left-radius: var(--inner-r);
 }
 
@@ -116,6 +129,21 @@ body {
   flex: 0 0 auto;
   min-height: var(--bar-h);
 }
+
+/* The header is as tall as the elbow, and everything alongside the elbow
+   aligns to the TOP so it sits level with the arm rather than stretching to
+   the full elbow height. */
+.bar--head {
+  align-items: flex-start;
+  min-height: var(--elbow-h);
+  gap: 0;
+}
+.bar--head > .bar__fill,
+.bar--head > .blocks {
+  height: var(--bar-h);
+}
+/* No gap between elbow and fill: the arm runs into the bar as one piece. */
+.bar--head > .blocks { margin-left: var(--gap); }
 
 .bar__fill {
   flex: 1 1 auto;
