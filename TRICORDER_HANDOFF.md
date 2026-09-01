@@ -91,7 +91,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | 5 | Audio spectrum analyzer | Easy | Web Audio | ✅ built; needed the §0.7 fix before it produced anything |
 | 6 | Floor-plane rangefinder | Medium | Camera + DeviceMotion | ✅ built, **accurate to inches** after two-point calibration |
 | 7 | Magnetic anomaly detector | Medium | DeviceOrientation + DeviceMotion | ⛔ built and correct, but **no signal exists on iOS 26.6.1** — not in the rail (§8.7) |
-| 8 | Ultrasonic Doppler motion | Medium | Web Audio | ✅ built; not yet exercised on hardware |
+| 8 | Ultrasonic Doppler motion | Medium | Web Audio | ✅ built and **verified on device** — detects motion and its direction |
 | 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU | not started; WebGPU path confirmed available |
 | 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | not started |
 | — | Diagnostics | — | — | ✅ built (§9) |
@@ -773,6 +773,29 @@ Emit a steady tone, watch for Doppler sidebands caused by movement in the room. 
 
 **Acceptance:** Waving a hand 30 cm from the phone produces a clear sideband; an empty still room does not.
 
+**MEASURED — passes, including direction.** A hand approaching and receding are
+distinguished correctly from the sideband asymmetry. Two implementation notes
+worth carrying to Instrument 10, which shares this audio path:
+
+- **Carrier presence must be judged relative to the out-of-band noise, never
+  against an absolute dBFS threshold.** A quiet room at 20 kHz sits very low,
+  so any fixed bar generous enough to admit a real carrier also admits silence.
+  In testing, pure noise at −101 dBFS passed a −115 dBFS bar and the instrument
+  began learning a quiet floor from nothing — which is exactly the mute-switch
+  case the check existed to catch. Comparing against the noise either side of
+  the analysis band is self-calibrating across emitter level, media volume,
+  room and reflectivity.
+- **Reserve Nyquist headroom derived from the bands you actually read, not a
+  round number.** A guessed 2 kHz is ample at 48 kHz and leaves 50 Hz at
+  44.1 kHz, where the upper sideband and the whole noise reference would run
+  past Nyquist — silently biasing the reference low and the SNR high. Sum the
+  analysis band, the gap and the reference band instead.
+
+Reporting the index as a sideband-to-carrier power **ratio** rather than as
+absolute energy also proved worth it: it is invariant to emitter level and to
+how reflective the room is, so one alert threshold means the same thing
+everywhere.
+
 ---
 
 ### 9. ML depth scanner — Hard ★ best visual
@@ -892,7 +915,7 @@ Matched-filter time-of-flight ranging. **Requires the `raw` mic profile (§5)** 
   a result. Anything that gates a build decision should be reproduced on a
   separate occasion before it is written down as settled — this document said
   "measure once" for engine-level questions, and that was wrong.
-- **M3** — ✅ **built.** Ultrasonic Doppler. The sample rate is 48 kHz (§11 q.3), so the carrier goes at 20 kHz with the full band available. Handle the §0.7 graph-termination trap in the emit/analyse path — it will bite here too.
+- **M3** — ✅ **built and verified on device.** Ultrasonic Doppler, detecting motion and discriminating approach from recede. The sample rate is 48 kHz (§11 q.3), so the carrier goes at 20 kHz with the full band available. Handle the §0.7 graph-termination trap in the emit/analyse path — it will bite here too.
 - **M4** — ML depth scanner. Check the WebGPU matrix (§1) before committing to the WebGPU path. **Already checked: WebGPU is present in Chrome on iOS 26**, so the WebGPU path is viable and WASM is a fallback rather than the expected route.
 - **M5** — Sonar, if M1–M4 are solid.
 

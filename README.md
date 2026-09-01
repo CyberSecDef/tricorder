@@ -16,7 +16,7 @@ Implementation constraints, instrument specs and the open questions live in
 [`TRICORDER_HANDOFF.md`](TRICORDER_HANDOFF.md). Section references throughout
 the source point back at it.
 
-## Status — M1 and M2 built, M3 built
+## Status — M1, M2 and M3 built
 
 | # | Instrument | State |
 |---|---|---|
@@ -29,7 +29,7 @@ the source point back at it.
 | — | Magnetic residual probe (§11 q.2 harness) | hidden from the rail — kept for re-testing (§8.7) |
 | 6 | Floor-plane rangefinder | ✅ built and **verified on device** — within inches after two-point calibration |
 | 7 | Magnetic anomaly detector | ⛔ built and correct, but no signal exists on iOS 26.6.1 — hidden from the rail |
-| 8 | Ultrasonic Doppler | ✅ built — needs on-device verification |
+| 8 | Ultrasonic Doppler | ✅ built and **verified on device** — detects motion and direction |
 | 9 | ML depth scanner | M4 — stub |
 | 10 | Acoustic sonar | M5 — stub |
 
@@ -159,6 +159,7 @@ WKWebView-versus-Safari question is not a version question:
 | §11 q.2 residual | **Answered negatively.** An earlier positive result was retracted — no magnetic signal reaches the web layer on iOS 26.6.1 |
 | Rangefinder | Pass — uncalibrated it read 1.76 m at 2.00 m (−12%); after two-point calibration, accurate to inches |
 | §11 q.3 sample rate | **Answered.** 48000 Hz, Nyquist 24 kHz — full 15–22 kHz ultrasonic band usable |
+| Doppler | Pass — detects a hand approaching and receding, direction correct |
 
 Tested in Chrome. Safari and Edge still outstanding for the §10 M1 gate.
 
