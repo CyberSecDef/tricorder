@@ -1,4 +1,24 @@
 /**
+ * NOT IN THE NAVIGATION RAIL — no signal exists for it on iOS 26.6.1.
+ *
+ * This instrument is correct and works. It reaches a 0.0084 degree noise floor
+ * and fires at 0.067 degrees of unexplained heading change. What it does not
+ * have is anything to detect: on the reference device the fused heading handed
+ * to the browser does not respond to a magnet at all — not a large one, not at
+ * any distance or angle, not spun, not while rotating past it. Raw
+ * webkitCompassHeading never moves, and Apple's own Compass app shows the same
+ * nothing, so the rejection happens well upstream of this code.
+ *
+ * An earlier session did record a clear response, 691x the noise floor, with
+ * webkitCompassAccuracy corroborating. It has never reproduced. That result and
+ * its retraction are documented in §8.7 of the handoff, along with four
+ * candidate explanations and the one stimulus still worth trying: a ferrous
+ * mass rather than a magnet.
+ *
+ * Kept in the tree, and kept compiling, because it IS the test. If a future
+ * iOS release or a different device behaves differently, re-enabling it is one
+ * import and one line in main.ts.
+ *
  * Instrument 7 — Magnetic anomaly detector (§8.7).
  *
  * The raw magnetometer is unreachable in every iOS browser, so this does not

@@ -26,9 +26,9 @@ the source point back at it.
 | 4 | Seismograph / vibration | ✅ built |
 | 5 | Audio spectrum analyzer | ✅ built |
 | — | Diagnostics | ✅ built |
-| — | Magnetic residual probe (§11 q.2 harness) | retired from the rail — its question is answered (§8.7) |
+| — | Magnetic residual probe (§11 q.2 harness) | hidden from the rail — kept for re-testing (§8.7) |
 | 6 | Floor-plane rangefinder | ✅ built and **verified on device** — within inches after two-point calibration |
-| 7 | Magnetic anomaly detector | ✅ built — needs on-device verification |
+| 7 | Magnetic anomaly detector | ⛔ built and correct, but no signal exists on iOS 26.6.1 — hidden from the rail |
 | 8 | Ultrasonic Doppler | M3 — stub |
 | 9 | ML depth scanner | M4 — stub |
 | 10 | Acoustic sonar | M5 — stub |
@@ -126,19 +126,13 @@ WKWebView-versus-Safari question is not a version question:
    time; the result is persisted and shown. Record the observed vector in the
    comment block at the top of `src/sensors/gravity.ts`. **Still open.**
 2. **Whether Core Motion's fusion damps the gyro/compass residual.** The one
-   genuinely open technical question in the handoff. **Answered: it does not.**
-   Measured with the probe screen on iOS 26.6.1, static protocol:
-
-   | | baseline | disturbed |
-   |---|---|---|
-   | rotation | 0.85° | 9.18° |
-   | residual RMS | **0.021°** | 4.68° |
-   | residual peak | 0.216° | **14.28°** |
-   | compass accuracy | 10° | 10° → 26° |
-
-   Signal B reaches **691× its noise floor** against a threshold of 4×.
-   Signal A responds too but weakly and late, lagging the residual by seconds.
-   Instrument 7 is buildable, on B primarily and A as corroboration.
+   genuinely open technical question in the handoff. **Answered negatively,
+   after an earlier positive answer was retracted.** Instrument 7 reaches a
+   0.0084° noise floor and fires at 0.067°, and sees nothing from any magnet at
+   any distance or angle. Raw `webkitCompassHeading` never moves; Apple's own
+   Compass app agrees. Signal A is dead too. A first session recorded 691× the
+   noise floor and has never reproduced — see §8.7 of the handoff for the full
+   story and four candidate explanations.
 3. **Audio sample rate** — Diagnostics → Runtime. Expect 48 kHz on iOS 26,
    giving a 22 kHz ultrasonic ceiling. Confirm rather than assume.
 6. **WebGPU exposure** — **answered.** Present in Chrome on iOS 26, so
@@ -161,7 +155,7 @@ WKWebView-versus-Safari question is not a version question:
 | Geo | Pass |
 | Spectrum | Pass, after fixing a dangling AnalyserNode WebKit never fed |
 | §11 q.6 WebGPU | **Answered.** Present in **Chrome** on iOS 26 — WKWebView exposes it, not Safari only |
-| §11 q.2 residual | **Answered.** Signal B undamped, 691× its noise floor. See below |
+| §11 q.2 residual | **Answered negatively.** An earlier positive result was retracted — no magnetic signal reaches the web layer on iOS 26.6.1 |
 | Rangefinder | Pass — uncalibrated it read 1.76 m at 2.00 m (−12%); after two-point calibration, accurate to inches |
 
 Tested in Chrome. Safari and Edge still outstanding for the §10 M1 gate.

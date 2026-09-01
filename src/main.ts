@@ -8,7 +8,6 @@ import { SeismographInstrument } from './instruments/seismograph';
 import { SpectrumInstrument } from './instruments/spectrum';
 import { DiagnosticsInstrument } from './instruments/diagnostics';
 import { RangefinderInstrument } from './instruments/rangefinder';
-import { MagneticInstrument } from './instruments/magnetic';
 import { PLANNED, PlannedInstrument } from './instruments/planned';
 
 const NAV: NavEntry[] = [
@@ -17,7 +16,10 @@ const NAV: NavEntry[] = [
   { id: 'seismo',   short: 'Seismo',   milestone: 'M1', create: () => new SeismographInstrument() },
   { id: 'spectrum', short: 'Spectrum', milestone: 'M1', create: () => new SpectrumInstrument() },
   { id: 'rangefinder', short: 'Range', milestone: 'M2', create: () => new RangefinderInstrument() },
-  { id: 'magnetic', short: 'Magnetic', milestone: 'M2', create: () => new MagneticInstrument() },
+  // Instrument 7 is deliberately absent: it is built and correct, but no
+  // magnetic signal reaches the web layer on iOS 26.6.1, so it would be a
+  // detector that detects nothing (§8.7 of the handoff). Re-enable by
+  // importing MagneticInstrument and restoring its entry here.
   ...PLANNED.filter((p) => p.id !== 'rangefinder' && p.id !== 'magnetic').map((p) => ({
     id: p.id,
     short: p.short,

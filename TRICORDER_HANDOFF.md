@@ -19,7 +19,7 @@
 
 1. **On iOS, Chrome and Edge *are* Safari.** App Store rules require every iOS browser to render with WKWebView — Apple's WebKit. Chrome for iOS is not Blink; Edge for iOS is not Blink. Supporting all three does **not** widen the API surface by one function. It changes permissions, installability, and a few newer features. See §1.
 2. **iOS has no WebXR, no Web Bluetooth, no Web NFC, no WebUSB, no Web Serial, no Battery Status API, and no Generic Sensor API** (`Accelerometer`, `Magnetometer`, `AmbientLightSensor`, `Gyroscope` classes all absent) — *in every browser on the platform.* Everything here uses `DeviceMotionEvent`, `DeviceOrientationEvent`, `getUserMedia`, Web Audio, and Geolocation. If you find yourself reaching for `new Magnetometer()`, stop.
-3. **The raw magnetometer is not accessible.** Not behind a flag, not in any iOS browser. We detect *anomalies* via a gyro/compass residual instead (Instrument 7). Do not promise µT readings anywhere in the UI. **MEASURED:** the residual works far better than this document originally dared hope — 691× its own noise floor. See §8.7.
+3. **The raw magnetometer is not accessible.** Not behind a flag, not in any iOS browser. We detect *anomalies* via a gyro/compass residual instead (Instrument 7). Do not promise µT readings anywhere in the UI. **MEASURED, and the news is bad:** on iOS 26.6.1 the fused heading exposed to the web does not respond to a magnet *at all* — not to a large one, not at any distance or angle, and not in Apple's own Compass app either. Instrument 7 is built and demonstrably sensitive to 0.067°, and detects nothing, so it is not in the rail. An earlier session did record a strong response and has not reproduced; the whole story is in §8.7. Treat Instrument 7 as unavailable until someone shows otherwise.
 4. **iPhone LiDAR is not accessible from the web.** ARKit only. Depth comes from an ML model (Instrument 9).
 5. **Motion sensors require an explicit permission call inside a real user gesture**, and the page must be served over **HTTPS** (a phone cannot use `localhost`). See §3 and §4.
 6. **Audio DSP defaults will destroy the sonar and Doppler instruments** — but only those. Because this app is a set of screens, mic constraints are a *per-instrument* concern, not a global one. See §5.
@@ -90,7 +90,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | 4 | Seismograph / vibration | Easy | DeviceMotion | ✅ built, passes on device |
 | 5 | Audio spectrum analyzer | Easy | Web Audio | ✅ built; needed the §0.7 fix before it produced anything |
 | 6 | Floor-plane rangefinder | Medium | Camera + DeviceMotion | ✅ built, **accurate to inches** after two-point calibration |
-| 7 | Magnetic anomaly detector | Medium | DeviceOrientation + DeviceMotion | ✅ built; not yet exercised on hardware |
+| 7 | Magnetic anomaly detector | Medium | DeviceOrientation + DeviceMotion | ⛔ built and correct, but **no signal exists on iOS 26.6.1** — not in the rail (§8.7) |
 | 8 | Ultrasonic Doppler motion | Medium | Web Audio | not started |
 | 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU | not started; WebGPU path confirmed available |
 | 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | not started |
@@ -626,11 +626,19 @@ We cannot read field magnitude in any iOS browser. We *can* detect disturbances 
 
 **Known risk:** iOS Core Motion already performs fusion that may partially reject magnetic outliers, damping signal B. **Measure this before building UI around it** — sweep the phone past a speaker magnet and log the raw residual. If signal B turns out to be too smoothed, fall back to signal A alone; it still works. The fusion is the OS's, so the result will be the same in all three browsers — measure once.
 
-### MEASURED — §11 q.2 is answered. Signal B is not damped.
+### ⚠️ RETRACTED — the first answer to §11 q.2 did not reproduce
 
-This was the one genuinely open technical question in the document, and the
-answer is emphatic. A paired experiment on the reference device, phone resting
-on a table, using the probe screen built for exactly this:
+**Read this before the table below.** The measurement recorded here was real
+data, honestly taken, and it is *not reproducible*. A second session on the
+same device, with a better noise floor and a much stronger magnet, produced
+nothing at all. The current conclusion is at the end of this section. The
+original measurement is left in place because it happened and because a future
+reader needs to know that this instrument gave a strong positive once.
+
+### The original measurement — observed once, never repeated
+
+A paired experiment on the reference device, phone resting on a table, using
+the probe screen built for exactly this:
 
 | | baseline | disturbed |
 |---|---|---|
@@ -639,9 +647,14 @@ on a table, using the probe screen built for exactly this:
 | residual peak | 0.216° | **14.28°** |
 | `webkitCompassAccuracy` | 10° | 10° → 26° |
 
-**691× its own noise floor**, against a detection threshold of 4×. Core Motion
-is not rejecting the magnetometer in any way that matters. Signal B is the
-strongest signal in the entire instrument set.
+**691× its own noise floor**, against a detection threshold of 4×. At the time
+this read as decisive: Core Motion was not rejecting the magnetometer, and
+signal B was the strongest signal in the instrument set.
+
+During that excursion the yaw rates were all below 0.1°/s, so the phone was
+genuinely still and it was not a handling artifact — and `webkitCompassAccuracy`
+moved 10 → 26 at the same moment, which is iOS independently reporting magnetic
+interference. Two signals agreeing. That is why it was believed.
 
 Two corrections to what this section assumed, and one caution:
 
@@ -680,7 +693,63 @@ ends the corrected residual swings the other way and sits there for a full time
 constant, so the detector reports a phantom anomaly after every real one and
 never re-arms.
 
+### MEASURED — the second session, and the current conclusion
+
+Instrument 7 was then built and tested on the same device. It reached a noise
+floor of **0.0084°**, better than the probe's, which at the 8× alert threshold
+means it fires on a heading disturbance of **0.067°**.
+
+Against that, the following produced **zero response on every readout**:
+
+- a large magnet and a small neodymium magnet;
+- brought in slowly from ten feet, and quickly;
+- from every angle, including from directly above;
+- spun, to vary the field rather than present a static one;
+- with the phone still, and while rotating past the magnet.
+
+Decisively, **raw `webkitCompassHeading` never moved at all** — peak deviation
+from its reference stayed at exactly 0.0 throughout. The heading was being
+reported; it was simply immune. And **Apple's own Compass app showed no
+deflection either**, which rules out this app as the cause and points at the
+platform.
+
+`webkitCompassAccuracy` did not respond either, so signal A is dead alongside
+signal B.
+
+**Current position: Instrument 7 does not work on iOS 26.6.1, and is not in the
+navigation rail.** The implementation is correct and demonstrably sensitive;
+the input signal is not there. Shipping it would be shipping a detector that
+detects nothing, which §2's non-goals rule out explicitly.
+
+**What is genuinely unresolved** is why it worked once. Candidates, none
+verified:
+
+- **Position.** The magnetometer is a specific spot, not the whole phone. The
+  first session may have happened to hit it.
+- **Saturation.** A strong magnet at close range can exceed the sensor's range
+  entirely. A saturated reading is obvious garbage that the fusion discards
+  outright, whereas a weaker field produces a wrong-but-plausible value that
+  propagates. This predicts that closer and stronger performs *worse*, which
+  is consistent with the second session but was not observed to reverse at
+  distance.
+- **MagSafe compensation.** iPhone 12 and later carry a magnet ring, and iOS
+  must keep the compass usable with MagSafe accessories attached. Active
+  rejection of a strong static nearby field would explain the second session
+  precisely — and would make a static permanent magnet the single worst
+  stimulus to test with.
+- **Calibration state.** The device recalibrates continuously and its
+  willingness to trust the magnetometer may vary with it.
+
+**If you want to resurrect this,** the honest test is a *ferrous mass* rather
+than a magnet — a cast-iron pan, a steel beam, a filing cabinet — which
+distorts the earth's field instead of presenting a dipole, and does not look
+like a MagSafe accessory. That is also the realistic detection case for a
+tricorder. Both the instrument and the probe are kept in the tree for exactly
+this; re-adding either to the rail is one line in `main.ts`.
+
 **Acceptance:** Sweeping past a fridge magnet or a laptop produces a visible, repeatable spike in at least one of the two signals, distinguishable from the noise floor of an undisturbed sweep.
+
+**Not met.** See above.
 
 **Note on test sources:** flexible fridge-door magnets are multipole by design —
 alternating stripes millimetres apart — so their field collapses almost
@@ -814,7 +883,15 @@ Matched-filter time-of-flight ranging. **Requires the `raw` mic profile (§5)** 
   The advice to measure early was correct and was followed: a dedicated probe
   screen was built before Instrument 7 existed, and answering q.2 first changed
   the instrument's design substantially (see §8.7). The rangefinder passes its
-  acceptance test. **Instrument 7 has not yet been exercised on hardware.**
+  acceptance test. **Instrument 7 does not work on this platform** — it is
+  built, correct and sensitive, but no signal reaches it, so it is not in the
+  rail. The whole story, including a retracted earlier result, is in §8.7.
+
+  **The lesson worth carrying forward:** the probe answered q.2 with a strong
+  positive that did not survive a second attempt. One good measurement is not
+  a result. Anything that gates a build decision should be reproduced on a
+  separate occasion before it is written down as settled — this document said
+  "measure once" for engine-level questions, and that was wrong.
 - **M3** — Ultrasonic Doppler. **Next.** Read the runtime sample rate first (§7) — it sets the carrier and is still unrecorded. Handle the §0.7 graph-termination trap in the emit/analyse path.
 - **M4** — ML depth scanner. Check the WebGPU matrix (§1) before committing to the WebGPU path. **Already checked: WebGPU is present in Chrome on iOS 26**, so the WebGPU path is viable and WASM is a fallback rather than the expected route.
 - **M5** — Sonar, if M1–M4 are solid.
@@ -832,11 +909,23 @@ Engine-level questions — measure once, the answer holds for all three browsers
    uses the **iOS convention**, and the gravity-down sign constant is **+1**.
    Full reasoning in §7. Confirmed the assumed default, which is precisely why
    it needed measuring — a wrong guess is silent.
-2. ✅ **ANSWERED, and the answer is good news.** Core Motion does **not** damp
-   the residual. 691× the device's own noise floor: 0.021° RMS at rest against
-   a 14.28° peak with a neodymium magnet. Full data in §8.7, along with two
-   corrections to how that section framed the problem — the static case beats
-   the sweep, and signal A is the weaker of the two rather than the safer.
+2. ⛔ **ANSWERED — negatively. An earlier positive answer here has been
+   RETRACTED.** On iOS 26.6.1 the fused heading does not respond to magnetic
+   disturbance at all. Instrument 7 reaches a 0.0084° noise floor, fires at
+   0.067°, and sees nothing from any magnet at any distance or angle; raw
+   `webkitCompassHeading` never moves, and Apple's own Compass app agrees.
+   Signal A is dead too.
+
+   A first session *did* record 691× the noise floor with two independent
+   signals agreeing, and that has never reproduced. Both the measurement and
+   the retraction are in §8.7, along with four candidate explanations, none
+   verified. The most promising untried stimulus is a **ferrous mass** rather
+   than a magnet.
+
+   Two framing corrections from that work stand regardless, because they are
+   about method rather than result: the static case is a better experiment
+   than the sweep, and signal A is the weaker signal rather than the safer
+   fallback.
 3. ⬜ **STILL OPEN.** Actual `audioCtx.sampleRate` on the device (48 k vs
    44.1 k) — determines the ultrasonic ceiling. The diagnostics and spectrum
    screens both display it; it has simply not been written down. **Read this
