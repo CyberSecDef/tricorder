@@ -644,3 +644,31 @@ body {
   background: var(--lc-gold);
   transition: width 200ms linear;
 }
+
+/* ---------- Barcode / QR scanner ----------------------------------------
+   The payload is untrusted text from a stranger's sticker. It is rendered as
+   inert, monospaced, wrapped content — never a link, and never markup. */
+.scan__payload {
+  font-family: var(--font-data);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--lc-gold);
+  background: #14141c;
+  border-left: 4px solid var(--lc-sunflower);
+  border-radius: 2px;
+  padding: 8px 10px;
+  max-height: 34dvh;
+  overflow: auto;
+  word-break: break-all;
+  white-space: pre-wrap;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.scan__hist {
+  font-family: var(--font-data);
+  font-size: 11px;
+  color: var(--lc-tanoi);
+  padding: 4px 0;
+  border-bottom: 1px solid #1e1e28;
+  word-break: break-all;
+}

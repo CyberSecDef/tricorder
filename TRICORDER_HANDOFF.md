@@ -96,6 +96,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | ✅ built and **verified on device** — all three bands |
 | — | Diagnostics | — | — | ✅ built (§9) |
 | — | Magnetic residual probe | — | DeviceOrientation + DeviceMotion | ✅ built — the harness that answered §11 q.2 |
+| + | Barcode / QR scanner | Easy | Camera + ZXing WASM | ✅ built — beyond the original ten; see §14 |
 
 Ship 1–5 as a working v1 before touching 6+.
 
@@ -1177,6 +1178,12 @@ Browser-level questions — check all three:
 
 ## 12. If an Android or desktop device ever becomes available
 
+**One of these has since been worked around.** `BarcodeDetector` is still
+absent on iOS, but barcode and QR reading did not need it — ZXing compiled to
+WebAssembly does the job in about 1.1 MB, reads more symbologies than
+`BarcodeDetector` supports, and behaves identically in all three browsers. See
+§14. The rest of the list stands.
+
 These unlock immediately and are worth knowing about, but **do not build for them now** — and note that none of them arrive by supporting Chrome or Edge *on iOS*, because those are WebKit (§1). They require the real Blink/Gecko engine on another platform: `Magnetometer` and the rest of the Generic Sensor API, WebXR depth sensing + `XRLightProbe`, Web NFC, `BarcodeDetector`, Battery Status, and — the big one — **Web Bluetooth**, whose standard Environmental Sensing service (`0x181A`) exposes temperature, humidity, pressure, UV index, and magnetic flux density from a cheap external BLE sensor pod. That is the path to a "real" tricorder with the sensors the browser refuses to provide.
 
 **One qualification, now that Instrument 7 has been measured.** The magnetometer
@@ -1220,3 +1227,42 @@ and polish:
 both documented where they live: the magnetic anomaly detector (§8.7, no signal
 exists) and the residual probe that proved it. Delete them when you are sure,
 or keep them as the test if a future device disagrees.
+
+---
+
+## 14. Barcode / QR scanner — an addition
+
+Not in the original ten. Added because it is genuinely useful, and because it
+turned out not to need the platform support §12 says is missing:
+`BarcodeDetector` is still absent on iOS, but ZXing compiled to WebAssembly
+reads more symbologies anyway, in about 1.1 MB, identically across all three
+browsers. Self-hosted from `public/zxing/` for the same reasons as the ONNX
+runtime.
+
+**The design constraint is that it shows and never acts**, and that is worth
+stating as a principle rather than a preference. A scanned payload is text
+supplied by whoever printed the code — untrusted input in the most literal
+sense, rendered on your screen, in a context where people are trained to scan
+and tap in one motion without ever reading the address. So:
+
+- nothing is navigated to, fetched, or executed;
+- no link is created, not even a disabled one. A test asserts that the screen
+  contains zero anchors and zero `href` attributes, because "we did not mean to
+  make it clickable" is not a guarantee;
+- the payload is written with `textContent`, never `innerHTML`;
+- invisible and bidirectional characters are **made visible**. A character that
+  changes how the rest of the string renders defeats the entire point of
+  showing it, and U+202E is a long-standing way to make a hostile domain look
+  like a familiar one;
+- the analysis states plainly what the payload *would* do if acted on.
+
+`lib/payload.ts` does the classification with no DOM at all, which makes it
+testable — 22 tests covering URLs, Wi-Fi, vCards, `javascript:`/`data:`/`file:`
+schemes, punycode hosts, embedded credentials, raw IPs, and each class of
+invisible character. That separation matters more here than elsewhere: the
+whole value of the instrument is that its description can be trusted.
+
+**Torch is used here**, and this is the instrument that justifies it — a code
+on a curved or matte surface in poor light is the normal failure. Feature
+detected, per the §7 correction, and simply absent when the track does not
+offer it.

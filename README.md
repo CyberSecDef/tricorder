@@ -27,6 +27,7 @@ the source point back at it.
 | 5 | Audio spectrum analyzer | ✅ built |
 | — | Diagnostics | ✅ built |
 | — | Magnetic residual probe (§11 q.2 harness) | hidden from the rail — kept for re-testing (§8.7) |
+| + | Barcode / QR scanner | ✅ built — beyond the original ten; decodes and describes, never opens |
 | 6 | Floor-plane rangefinder | ✅ built and **verified on device** — within inches after two-point calibration |
 | 7 | Magnetic anomaly detector | ⛔ built and correct, but no signal exists on iOS 26.6.1 — hidden from the rail |
 | 8 | Ultrasonic Doppler | ✅ built and **verified on device** — detects motion and direction |

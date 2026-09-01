@@ -5,6 +5,7 @@ dist/
 # scripts/copy-ort.mjs. Reproducible artefacts; 39 MB of WASM does not belong
 # in the history.
 public/ort/
+public/zxing/
 
 # Development TLS material. The private keys must never be committed; the
 # README explaining how they are generated should be.
