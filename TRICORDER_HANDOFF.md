@@ -883,23 +883,31 @@ const depth = await pipeline('depth-estimation',
   arguing about it would have taken longer. Input cost scales roughly with the
   square of the resolution, so that is the second lever.
 - Expect roughly 5–15 FPS on recent iPhone hardware via WebGPU; single-digit or worse on WASM. Run inference in a loop decoupled from the render loop and show the latest available map.
-- ⚠️ **MEASURED — sustained inference gets the tab killed.** On the reference
-  device, continuous WebGPU inference plus a live camera caused iOS to reclaim
-  the page within 5–10 seconds: it simply reloads. Two contributing bugs were
-  found and fixed and it still crashed, so treat this as a property of the
-  workload rather than something to debug away:
-  - Output tensors must be `dispose()`d. They can be GPU-backed, and GPU memory
-    is not managed by the JavaScript collector, so keeping `tensor.data` and
-    letting the tensor fall out of scope leaks a buffer per inference.
-  - Inference must stop when the page is hidden. Running a camera and a GPU
-    flat out for an invisible page is a reliable way to be reclaimed.
+- ⚠️ **MEASURED — naive continuous inference gets the tab killed in 5–10
+  seconds.** On the reference device the page simply reloads: iOS reclaims it
+  under memory pressure. Three things were needed to make it survive, and it is
+  worth knowing which mattered, because they are not equally obvious.
 
-  **The instrument therefore defaults to single-shot.** One frame on demand
-  cannot accumulate anything, costs nothing while idle, and is a perfectly
-  honest interaction for a *scanner* — continuous video was the natural thing
-  to build and the wrong default. Continuous remains available, capped at
-  ~5 fps, for devices that tolerate it. The memory levers, in order, are a
-  smaller processor size and `q4f16` weights (a quarter the size of fp16).
+  1. **Dispose output tensors.** They can be GPU-backed, and GPU memory is not
+     managed by the JavaScript collector — so keeping `tensor.data` and letting
+     the tensor fall out of scope leaks a buffer per inference. Necessary, and
+     not sufficient.
+  2. **Stop inferring when the page is hidden.** Running a camera and a GPU
+     flat out for a page nobody can see is a reliable way to be reclaimed.
+     Also necessary, also not sufficient — with both of these in place it still
+     crashed in 5–10 seconds.
+  3. **Cap the rate.** Dropping the loop from ~15 fps to ~5 fps is what
+     actually made it survive. That is the informative part: after the
+     disposal fix this is **allocation-rate pressure, not a leak.** At 5 fps
+     the allocator keeps up; at 15 fps it does not. Chasing it as a leak would
+     have been chasing the wrong thing.
+
+  With all three, both continuous and single-shot ran comfortably past 30
+  seconds. **The instrument still defaults to single-shot**, because one frame
+  on demand cannot accumulate anything at all, costs nothing while idle, and is
+  an honest interaction for a *scanner* — but continuous is a real option
+  rather than a trap. The remaining memory levers, if a device needs them, are
+  a smaller processor size and `q4f16` weights (a quarter the size of fp16).
 - Model download is ~25–50 MB. Cache it (Transformers.js uses the Cache API) and show a first-run progress bar. **The cache is per-browser** — a user who tries the app in both Safari and Chrome downloads it twice.
 - Output is **relative inverse depth**, not meters. Say so in the UI.
 - **Per-frame min/max normalization causes severe flicker.** Smooth the normalization bounds with an EMA across frames.
