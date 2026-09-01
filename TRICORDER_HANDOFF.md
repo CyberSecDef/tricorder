@@ -863,7 +863,10 @@ const depth = await pipeline('depth-estimation',
 - ⚠️ **CORRECTION — `dtype: 'q8'` is the single worst choice on a GPU.** This
   document recommends q8 without qualification. That is right for the WASM
   path and badly wrong for WebGPU. **MEASURED** on the reference device,
-  iPhone / iOS 26.6.1, Chrome, WebGPU, 256×256 input:
+  iPhone / iOS 26.6.1, Chrome, WebGPU. Note these were taken *before* the
+  processor-size fix described below, when handing the pipeline a smaller
+  canvas had no effect — so all three ran at the model's native 518 px. The
+  ratios are the point; the absolute figures belong to 518 px:
 
   | dtype | inference | vs q8 |
   |---|---|---|
