@@ -90,6 +90,23 @@ in Safari, Chrome and Edge.
 and reuses the existing CA, so a DHCP change needs a re-run but **not** a
 re-install on the phone.
 
+## Tests
+
+```sh
+npm test           # everything
+npm run test:unit  # pure logic — no browser, no server, fast
+```
+
+`tests/unit/` checks the maths against closed-form answers — ranging geometry,
+the sonar matched filter, PPG rate estimation, barcode payload analysis, colour
+binning. Those are the suites that caught real errors. `tests/browser/` drives
+the real UI, and where a sensor cannot be faked it asserts the *honest failure*
+instead: that the instrument says it has no signal rather than inventing one.
+
+A green headless run is a regression net, never evidence about the platform.
+The two worst bugs this project has seen were invisible in Chromium and obvious
+on the phone. See `tests/README.md`.
+
 ## Architecture
 
 ```

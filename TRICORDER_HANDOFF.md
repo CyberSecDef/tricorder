@@ -1211,6 +1211,10 @@ rangefinder, Instrument 7, four probe regressions, and a smoke test that mounts
 and unmounts all eleven screens. It is a regression net, not evidence about the
 platform — see the last bullet of §9.
 
+**The test suite lives in `tests/`** — `npm test`, or `test:unit` for the pure
+logic that needs no browser or server. `tests/README.md` explains the split and,
+importantly, what headless testing cannot cover here.
+
 **Nothing is outstanding to make the app work.** What remains is verification
 and polish:
 

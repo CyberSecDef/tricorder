@@ -1,0 +1,48 @@
+/* Does inference actually stop when the page is hidden? */
+import { chromium } from 'playwright-core';
+
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const CHROME = process.env.CHROME_PATH
+  ?? join(process.env.HOME ?? '', '.cache/ms-playwright/chromium-1234/chrome-linux64/chrome');
+const BASE = process.env.TRICORDER_URL ?? 'https://localhost:5173/';
+const browser = await chromium.launch({
+  executablePath: CHROME,
+  args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+});
+const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 390, height: 844 }, permissions: ['camera'] });
+const page = await ctx.newPage();
+await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.locator('.engage').click();
+await page.waitForSelector('.rail__btn');
+await page.click('.rail__btn[data-id="depth"]');
+await page.waitForSelector('.depth__out', { timeout: 10000 });
+await page.click('.btn:has-text("Load model")');
+
+// Wait for inference to be running.
+for (let i = 0; i < 40; i++) {
+  await page.waitForTimeout(3000);
+  const v = await page.locator('.readout:has-text("Rate") .ro-value').textContent();
+  if (v && !v.startsWith('—') && parseFloat(v) > 0) break;
+}
+const rate = () => page.locator('.readout:has-text("Rate") .ro-value').textContent();
+console.log('visible, running   : rate =', await rate(), 'fps');
+
+// Spoof hidden and fire the event.
+await page.evaluate(() => {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+  document.dispatchEvent(new Event('visibilitychange'));
+});
+await page.waitForTimeout(4000);
+console.log('hidden, after 4 s  : rate =', await rate(), 'fps   (should fall toward 0)');
+await page.waitForTimeout(4000);
+console.log('hidden, after 8 s  : rate =', await rate(), 'fps   <- inference paused if 0.0');
+
+await page.evaluate(() => {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+  document.dispatchEvent(new Event('visibilitychange'));
+});
+await page.waitForTimeout(6000);
+console.log('visible again      : rate =', await rate(), 'fps   <- resumed if > 0');
+await browser.close();

@@ -13,4 +13,8 @@ certs/*
 !certs/README.md
 
 *.local
+
+# Test build artefacts (esbuild output for the unit suites).
+.tmp/
+tests/.tmp/
 .DS_Store
