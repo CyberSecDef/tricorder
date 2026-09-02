@@ -35,7 +35,7 @@ export const PLANNED: Plan[] = [
     principle:
       'With the camera at a known height h above a flat floor, a ray depressed θ below horizontal meets the floor at h / tan θ. Tap where an object meets the floor and the geometry gives a genuinely metric distance.',
     blockers: [
-      'Gravity sign convention must be calibrated first (Diagnostics) — the whole derivation hangs on ĝ_down pointing the right way.',
+      'Gravity sign convention must be calibrated first (Core) — the whole derivation hangs on ĝ_down pointing the right way.',
       'FOV is the dominant error source and getUserMedia may crop relative to the native camera. Needs a calibration mode solving for FOV against a tape-measured distance, keyed by capability fingerprint rather than UA — Safari and WKWebView may crop differently (§11 q.5).',
       'Normalised tap coordinates must account for CSS object-fit cropping of the video element. This is the classic bug in this instrument.',
     ],
@@ -73,7 +73,7 @@ export const PLANNED: Plan[] = [
     principle:
       'Emit a steady ~20 kHz tone and watch the bins either side of the carrier. Δf = 2vf/c, so 1 m/s of motion shifts about 117 Hz at 20 kHz — roughly 40 bins at fftSize 16384. Sideband asymmetry gives approach versus recede.',
     blockers: [
-      'Carrier frequency depends on the runtime sample rate: 20 kHz at 48 kHz, ~18 kHz at 44.1 kHz. Check Diagnostics.',
+      'Carrier frequency depends on the runtime sample rate: 20 kHz at 48 kHz, ~18 kHz at 44.1 kHz. Check Core.',
       'Noise suppression treats a steady tone as noise and deletes the carrier outright; AGC destroys the amplitude the motion index is built on. The raw profile is not optional here.',
       'The hardware mute switch silences Web Audio output. Needs a "no signal at the emit frequency — check the mute switch" hint.',
     ],

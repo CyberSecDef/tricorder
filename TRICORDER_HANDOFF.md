@@ -94,7 +94,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | 8 | Ultrasonic Doppler motion | Medium | Web Audio | ✅ built and **verified on device** — detects motion and its direction |
 | 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU | ✅ built and **verified on device** — WebGPU, fp16, 252 px |
 | 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | ✅ built and **verified on device** — all three bands |
-| — | Diagnostics | — | — | ✅ built (§9) |
+| — | Core | — | — | ✅ built (§9) — renamed from *Diagnostics* on 2026-09-02; see §17 |
 | — | Magnetic residual probe | — | DeviceOrientation + DeviceMotion | ✅ built — the harness that answered §11 q.2 |
 | + | Barcode / QR scanner | Easy | Camera + ZXing WASM | ✅ built — beyond the original ten; see §14 |
 | + | Pulse (PPG) | Medium | Camera + torch | ✅ built — beyond the original ten; see §15 |
@@ -1203,13 +1203,22 @@ humidity and pressure have no substitute at all.
 
 ## 13. Where to pick up
 
-Current state: **M1 and M2 built and pushed.** Seven instruments, a diagnostics
-screen and a measurement probe. ~36 kB gzipped, no runtime dependencies.
+Current state: **M1 through M5 built and pushed, plus three additions.** The
+rail holds twelve entries: eleven instruments that measure the world (Geo,
+Compass, Seismo, Spectrum, Range, Doppler, Depth, Sonar, Scan, Pulse, Vizer)
+and **Core**, the one panel that reports on the device itself. Every planned
+placeholder has been replaced by the real thing.
+
+*(Corrected 2026-09-02: this paragraph still read "M1 and M2 built. Seven
+instruments" long after M3–M5 and the three additions shipped. The count is
+now derived from the actual `NAV` array in `src/main.ts` rather than from
+memory.)*
 
 The desktop test suite covers 16 geometry cases plus end-to-end checks for the
-rangefinder, Instrument 7, four probe regressions, and a smoke test that mounts
-and unmounts all eleven screens. It is a regression net, not evidence about the
-platform — see the last bullet of §9.
+rangefinder, four probe regressions, and a smoke test that enumerates the rail
+at runtime and mounts and unmounts every screen it finds — so it does not need
+updating when an instrument is added. It is a regression net, not evidence
+about the platform — see the last bullet of §9.
 
 **The test suite lives in `tests/`** — `npm test`, or `test:unit` for the pure
 logic that needs no browser or server. `tests/README.md` explains the split and,
@@ -1231,6 +1240,9 @@ and polish:
    and one calibration run away.
 4. **Vendor the Antonio font** before a public deploy. It is the only external
    request the app makes.
+5. **Fill out Core.** It was renamed from *Diagnostics* on 2026-09-02 to make
+   room for settings, benchmarks and an about page (§17). The rename is done;
+   the rooms are still empty, and deliberately not stubbed.
 
 **Two instruments are in the tree but not in the rail**, both deliberately and
 both documented where they live: the magnetic anomaly detector (§8.7, no signal
@@ -1366,3 +1378,54 @@ Two decisions in `lib/huespectrum.ts` worth carrying forward:
 the right hue, a blue scene containing *exactly zero* red, mixed scenes in
 proportion, greys and near-blacks excluded rather than smeared, magenta
 classified as non-spectral, and the wavelength labels running the right way.
+
+---
+
+## 17. Core — the device panel (renamed from Diagnostics, 2026-09-02)
+
+`Diag` was the odd entry in the rail. Every other screen measures something in
+the world; that one measures the tricorder. It was named after a single one of
+its jobs, and the moment the panel had to hold settings, an about page and
+benchmarks as well, the name was actively misleading — a container named after
+one of the things inside it.
+
+Renamed to **Core**, after the computer core. Three reasons it beat the
+alternatives (*Systems*, *Ops*, *Library*):
+
+- It reads as a container. It promises "everything about this machine" rather
+  than any single sub-panel, so adding settings or benchmarks later does not
+  make the label wrong again.
+- It is four characters, which matters in a rail whose other labels are `Geo`,
+  `Scan`, `Depth`. `Systems` is the most literal name but the least at home
+  next to those.
+- It is in-world without being a joke. *Library* would have been a cute nod to
+  the L in LCARS, but it reads as documentation, and configuration does not
+  belong under a name that means reference material.
+
+**What changed mechanically:** `src/instruments/diagnostics.ts` →
+`src/instruments/core.ts`, `DiagnosticsInstrument` → `CoreInstrument`, nav id
+`diag` → `core`, title `Diagnostics` → `Core`. The nav path quoted by other
+instruments changed too, and it changed to the *section heading* rather than the
+button text: Compass, Rangefinder and the planned-instrument notes now say
+**Core → Gravity sign convention**, which is what the user actually has to look
+for on the page. `tests/browser/cam.test.mjs` navigates by `data-id`, so it was
+updated in the same pass; it is the only test that names the panel.
+
+**What did not change:** the contents. Core today holds exactly what
+Diagnostics held — capabilities, runtime, sensor liveness, the gravity
+calibration, the camera probe, and the known-absent API list. Settings,
+benchmarks and about are the reason for the rename, not part of it, and none of
+them are stubbed. An empty section that promises a feature is worse than no
+section: the §9 honesty rule applies to the app's own chrome as much as to a
+readout.
+
+**If you build the rest of it,** the ordering that follows from the existing
+page is: *about* first (cheapest, and it is the only one with no open design
+question — build hash, target platform, instrument count, licence), *settings*
+second (the real question is what is genuinely a preference rather than a
+measurement — candidates are units, the depth model's dtype and input size,
+which currently auto-negotiate, and whether the wake lock is held), and
+*benchmarks* last, because it is the one that needs a decision before code:
+a benchmark that reports a number without saying what hardware and what thermal
+state produced it is exactly the kind of uncalibrated readout the rest of this
+project refuses to ship.

@@ -105,7 +105,7 @@ export class RangefinderInstrument extends Instrument {
     const gcal = gravityCalibration();
     if (!gcal.verified) {
       append(statusBox, notice('bad',
-        '<strong>Gravity sign convention is not calibrated.</strong> Every ray in this instrument is built from ĝ_down, so an inverted polarity makes every reading wrong rather than merely imprecise. Run Diagnostics → Calibrate gravity first.'));
+        '<strong>Gravity sign convention is not calibrated.</strong> Every ray in this instrument is built from ĝ_down, so an inverted polarity makes every reading wrong rather than merely imprecise. Run Core → Gravity sign convention first.'));
     }
 
     try {

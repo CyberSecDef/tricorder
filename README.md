@@ -9,7 +9,7 @@ That floor clears every version gate the handoff hedged against — Wake Lock
 (16.4+), WebGPU (Safari 26+), AudioWorklet (14.5+), getUserMedia in WKWebView
 (14.3+). Feature detection stays regardless: the reason to detect is that
 Chrome and Edge on iOS are WKWebView, and what an embedded web view exposes is
-not guaranteed to match Safari at the same OS version. Diagnostics flags any
+not guaranteed to match Safari at the same OS version. Core flags any
 divergence from the floor as a finding rather than shrugging at it.
 
 Implementation constraints, instrument specs and the open questions live in
@@ -25,7 +25,7 @@ the source point back at it.
 | 3 | Compass / attitude | ✅ built |
 | 4 | Seismograph / vibration | ✅ built |
 | 5 | Audio spectrum analyzer | ✅ built |
-| — | Diagnostics | ✅ built |
+| — | Core (diagnostics, calibration, capabilities) | ✅ built |
 | — | Magnetic residual probe (§11 q.2 harness) | hidden from the rail — kept for re-testing (§8.7) |
 | + | Barcode / QR scanner | ✅ built — beyond the original ten; decodes and describes, never opens |
 | + | Pulse (PPG) | ✅ built — beyond the original ten; heart rate only, explicitly not a medical device |
@@ -141,15 +141,15 @@ needs and releases it on exit (§5).
 ## On-device verification
 
 M1 is not done until it has run on real hardware in all three browsers. The
-Diagnostics screen exists to make this fast — it reports every capability, the
+Core screen exists to make this fast — it reports every capability, the
 runtime audio sample rate, live event rates, and the gravity calibration state.
 
 Open questions from §11. Targeting iOS 26+ answers 3, 7 and half of 6 by
 version, but they are all still worth confirming per browser, because the
 WKWebView-versus-Safari question is not a version question:
 
-1. **`accelerationIncludingGravity` sign convention.** Diagnostics → *Calibrate
-   gravity*, phone flat and screen up. Nothing assumes a polarity at build
+1. **`accelerationIncludingGravity` sign convention.** Core → *Gravity sign
+   convention*, phone flat and screen up. Nothing assumes a polarity at build
    time; the result is persisted and shown. Record the observed vector in the
    comment block at the top of `src/sensors/gravity.ts`. **Still open.**
 2. **Whether Core Motion's fusion damps the gyro/compass residual.** The one
@@ -167,7 +167,7 @@ WKWebView-versus-Safari question is not a version question:
    WKWebView does expose it and this is not a Safari-only capability.
    Instrument 9 can commit to the WebGPU path; the WASM fallback stays as a
    safety net rather than an expected route. Confirm in Edge when convenient.
-7. **Wake Lock** — guaranteed by the floor; the Diagnostics row confirms it is
+7. **Wake Lock** — guaranteed by the floor; the Core row confirms it is
    actually held, which is a different claim.
 8. **Motion-prompt behaviour and denial recovery** — exercise the boot gate in
    each browser. **Still open.**
@@ -220,5 +220,5 @@ Acceptance tests per §8, in build order:
 Absolute SPL in dB, Richter magnitude, metric depth from the ML model,
 barometric pressure, temperature, humidity, radiation, NFC and battery. Either
 no API exists on iOS in any browser, or the phone cannot be calibrated for it.
-They are not faked, and Diagnostics lists the absent APIs explicitly so a future
+They are not faked, and Core lists the absent APIs explicitly so a future
 reader does not go hunting.

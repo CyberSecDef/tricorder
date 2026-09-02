@@ -132,5 +132,5 @@ function denialHelp(): HTMLElement {
 }
 
 
-/** Re-exported so the diagnostics screen can show the same capability set. */
+/** Re-exported so the Core screen can show the same capability set. */
 export { capabilities };

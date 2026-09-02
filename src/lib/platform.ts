@@ -11,7 +11,7 @@
  * exposes to an embedded web view is not guaranteed to match what Safari
  * exposes at the same OS version. A version floor tells us what SHOULD be
  * present; detection tells us what IS. Where they disagree, that is a finding
- * worth surfacing rather than a shrug — see the diagnostics screen.
+ * worth surfacing rather than a shrug — see the Core screen.
  */
 
 export const TARGET = {

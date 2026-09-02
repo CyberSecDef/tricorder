@@ -1,8 +1,15 @@
 /**
- * Diagnostics (§9). "It costs an hour and will save days of remote debugging
- * across three browsers" — so it lists every detected capability, the runtime
- * audio sample rate, the resolved gravity sign convention, and live sensor
- * liveness, plus the gravity calibration that resolves §11 question 1.
+ * Core (§9) — the one panel that is about the tricorder rather than about the
+ * world. Every other screen measures something external; this one reports what
+ * the device itself can do, how it is configured, and what it is.
+ *
+ * Formerly "Diagnostics", and diagnostics is still the bulk of it: "it costs an
+ * hour and will save days of remote debugging across three browsers" — so it
+ * lists every detected capability, the runtime audio sample rate, the resolved
+ * gravity sign convention, and live sensor liveness, plus the gravity
+ * calibration that resolves §11 question 1. The name widened because the panel
+ * is also where settings, benchmarks and about-this-build belong; they are not
+ * built yet, and nothing here pretends otherwise.
  */
 
 import { Instrument } from '../ui/screen';
@@ -20,10 +27,10 @@ import { lerp, len } from '../lib/vec';
 
 type State = 'ok' | 'warn' | 'bad' | '';
 
-export class DiagnosticsInstrument extends Instrument {
-  readonly id = 'diag';
-  readonly title = 'Diagnostics';
-  override readonly subtitle = 'Capabilities · calibration';
+export class CoreInstrument extends Instrument {
+  readonly id = 'core';
+  readonly title = 'Core';
+  override readonly subtitle = 'Diagnostics · calibration';
   override readonly resources = 'motion + orientation';
 
   private motionCount = 0;
@@ -149,7 +156,7 @@ export class DiagnosticsInstrument extends Instrument {
 
     // --- Camera capabilities (§11 q.4) ------------------------------------
     // Behind a button, not automatic: §4 is clear that the camera is acquired
-    // by the screen that needs it, and a diagnostics page that silently lights
+    // by the screen that needs it, and a device panel that silently lights
     // the privacy indicator on arrival would be exactly the alarming behaviour
     // that section warns against. The probe releases the track immediately.
     const camBox = el('div');

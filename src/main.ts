@@ -6,7 +6,7 @@ import { GeoInstrument } from './instruments/geo';
 import { CompassInstrument } from './instruments/compass';
 import { SeismographInstrument } from './instruments/seismograph';
 import { SpectrumInstrument } from './instruments/spectrum';
-import { DiagnosticsInstrument } from './instruments/diagnostics';
+import { CoreInstrument } from './instruments/core';
 import { RangefinderInstrument } from './instruments/rangefinder';
 import { DopplerInstrument } from './instruments/doppler';
 import { DepthInstrument } from './instruments/depth';
@@ -38,7 +38,7 @@ const NAV: NavEntry[] = [
     milestone: p.milestone,
     create: () => new PlannedInstrument(p),
   })),
-  { id: 'diag',     short: 'Diag',     milestone: 'M1', create: () => new DiagnosticsInstrument() },
+  { id: 'core',     short: 'Core',     milestone: 'M1', create: () => new CoreInstrument() },
 ];
 
 async function start(): Promise<void> {

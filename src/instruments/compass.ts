@@ -82,7 +82,7 @@ export class CompassInstrument extends Instrument {
         cal.verified ? 'ok' : 'warn',
         cal.verified
           ? `Gravity sign convention calibrated on this device (sign ${cal.sign > 0 ? '+1' : '−1'}). Pitch and roll are trustworthy.`
-          : 'Gravity sign convention is <strong>assumed, not measured</strong>. Pitch/roll polarity may be inverted. Run Diagnostics → Calibrate gravity, and check the bubble against a real spirit level.',
+          : 'Gravity sign convention is <strong>assumed, not measured</strong>. Pitch/roll polarity may be inverted. Run Core → Gravity sign convention, and check the bubble against a real spirit level.',
       ),
     );
 

@@ -4,7 +4,7 @@
  * §7 warns that the sign convention of `accelerationIncludingGravity` differs
  * between iOS and the W3C spec, and tells us not to trust a remembered
  * polarity. So: we assume nothing at build time. `SIGN` is resolved at runtime
- * by a calibration the user runs once (Diagnostics → Calibrate gravity), the
+ * by a calibration the user runs once (Core → Gravity sign convention), the
  * result is persisted, and until they do we run on a documented assumption
  * that is clearly flagged as unverified in the UI.
  *

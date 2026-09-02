@@ -21,7 +21,7 @@ await page.addInitScript(() => { window.__tracks = [];
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.locator('.engage').click();
 await page.waitForSelector('.rail__btn');
-await page.click('.rail__btn[data-id="diag"]');
+await page.click('.rail__btn[data-id="core"]');
 await page.waitForTimeout(400);
 await page.click('.btn:has-text("Probe camera capabilities")');
 await page.waitForTimeout(2500);
