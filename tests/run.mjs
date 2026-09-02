@@ -22,6 +22,9 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const which = process.argv[2];
+// `retired/` is deliberately absent: those suites target instruments that are
+// no longer in the rail, so they cannot run against the app as shipped. See
+// tests/retired/README.md.
 const kinds = which ? [which] : ['unit', 'browser'];
 
 let failed = 0, ran = 0;

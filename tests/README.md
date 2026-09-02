@@ -24,6 +24,13 @@ because they check maths against answers worked out independently.
 | `payload` | Barcode payload analysis (§14). Classification, plus every hazard the scanner is meant to name: `javascript:`/`data:`/`file:`, punycode hosts, embedded credentials, raw IPs, open Wi-Fi, and each class of invisible character. |
 | `hue` | Vizer colour binning (§16). Single colours land on the right hue, a blue scene contains *exactly zero* red, greys and near-blacks are excluded rather than smeared, magenta is classified non-spectral. |
 
+## `retired/` — not run by default
+
+Suites for the magnetic anomaly detector and its probe. Both instruments are
+still in the tree, neither is in the rail (§8.7), so these click a button that
+no longer exists and time out. Kept because they are the apparatus that would
+prove a future device behaves differently. See `retired/README.md`.
+
 ## `browser/` — end to end
 
 Need `playwright-core` and a running server. They drive the real UI, and where

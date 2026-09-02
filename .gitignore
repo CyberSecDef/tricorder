@@ -17,4 +17,7 @@ certs/*
 # Test build artefacts (esbuild output for the unit suites).
 .tmp/
 tests/.tmp/
+# Screenshots written by the browser suites as a side effect.
+shot-*.png
+tests/**/*.png
 .DS_Store

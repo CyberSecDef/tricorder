@@ -41,7 +41,8 @@ src/
   lib/         maths and platform helpers, deliberately DOM-free so they can
                be tested — rangefinder, dsp, pulse, huespectrum, payload
   ui/          screen.ts (lifecycle), app.ts (shell), dom.ts, lcars.css
-tests/         unit/ (pure logic) and browser/ (end to end). See tests/README.md
+tests/         unit/ (pure logic), browser/ (end to end), retired/ (suites for
+               instruments no longer in the rail). See tests/README.md
 scripts/       cert generation, WASM copy steps
 ```
 
