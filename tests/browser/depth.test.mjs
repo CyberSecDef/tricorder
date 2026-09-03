@@ -1,6 +1,13 @@
 /* Does the model actually load and infer? Headless Chromium has no WebGPU, so
  * this exercises the WASM fallback path — slow, but it proves the pipeline,
  * the self-hosted runtime, and the frame plumbing all work. */
+/* NETWORKIDLE NOTE: navigation waits for domcontentloaded, not networkidle.
+ * Playwright discourages networkidle, and here it was actively harmful — the
+ * page holds an HMR socket and several suites open camera or model requests,
+ * so "500 ms of quiet" is not a state this app reliably reaches. Full runs kept
+ * dropping a suite at `navigating to ... waiting until "networkidle"`. Every
+ * suite already waits for `.engage` immediately afterwards, which is the real
+ * readiness signal, so networkidle was pure fragility. */
 import { chromium } from 'playwright-core';
 
 import { dirname, join } from 'node:path';
@@ -28,7 +35,7 @@ const reqs = new Map();
 page.on('response', r => { const u = r.url();
   if (/\.wasm|\.onnx|ort\//.test(u)) reqs.set(u.split('/').slice(-1)[0].slice(0,48), r.status()); });
 
-await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 await page.locator('.engage').click();
 await page.waitForSelector('.rail__btn');
 await page.click('.rail__btn[data-id="depth"]');

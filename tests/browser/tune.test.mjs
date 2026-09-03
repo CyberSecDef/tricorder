@@ -1,3 +1,10 @@
+/* NETWORKIDLE NOTE: navigation waits for domcontentloaded, not networkidle.
+ * Playwright discourages networkidle, and here it was actively harmful — the
+ * page holds an HMR socket and several suites open camera or model requests,
+ * so "500 ms of quiet" is not a state this app reliably reaches. Full runs kept
+ * dropping a suite at `navigating to ... waiting until "networkidle"`. Every
+ * suite already waits for `.engage` immediately afterwards, which is the real
+ * readiness signal, so networkidle was pure fragility. */
 import { chromium } from 'playwright-core';
 
 import { dirname, join } from 'node:path';
@@ -21,7 +28,7 @@ const page = await ctx.newPage();
 page.setDefaultTimeout(120_000);
 
 const errs = []; page.on('pageerror', e => errs.push(e.message));
-await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 await page.locator('.engage').click();
 await page.waitForSelector('.rail__btn');
 await page.click('.rail__btn[data-id="depth"]');

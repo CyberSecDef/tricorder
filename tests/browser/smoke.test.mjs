@@ -2,6 +2,13 @@
  * DeviceMotion, no webkitCompassHeading and no real sensor data here — but it
  * proves the shell boots, every screen mounts and unmounts, and nothing throws.
  * We fake devicemotion/deviceorientation events so the render loops run. */
+/* NETWORKIDLE NOTE: navigation waits for domcontentloaded, not networkidle.
+ * Playwright discourages networkidle, and here it was actively harmful — the
+ * page holds an HMR socket and several suites open camera or model requests,
+ * so "500 ms of quiet" is not a state this app reliably reaches. Full runs kept
+ * dropping a suite at `navigating to ... waiting until "networkidle"`. Every
+ * suite already waits for `.engage` immediately afterwards, which is the real
+ * readiness signal, so networkidle was pure fragility. */
 import { chromium } from 'playwright-core';
 
 import { dirname, join } from 'node:path';
@@ -37,7 +44,7 @@ page.setDefaultTimeout(60_000);
 page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 
-await page.goto(URL, { waitUntil: 'networkidle' });
+await page.goto(URL, { waitUntil: 'domcontentloaded' });
 
 // Drive the sensor streams: Chromium on Linux fires neither event on its own.
 await page.addInitScript(() => {});
@@ -94,6 +101,40 @@ const liveTracks = await page.evaluate(() => {
   return document.querySelectorAll('audio,video').length;
 });
 console.log('stray media elements:', liveTracks);
+
+/* The rail must fit on a phone without scrolling.
+ *
+ * It is easy to break by accident: adding an instrument costs one more button,
+ * and nothing else in the app notices. At thirteen entries and a 46px button
+ * floor it overflowed a 390x640 viewport by 86px and the last instruments
+ * needed a scroll to reach. Note that the type size was NOT what set the
+ * height — the text needs about 34px and the button floor bound at 46 — so
+ * shrinking the font alone changed nothing. This asserts the outcome rather
+ * than either number. */
+console.log('\n-- rail fits a phone --');
+await page.setViewportSize({ width: 390, height: 640 });
+await page.waitForTimeout(300);
+const rail = await page.evaluate(() => {
+  const r = document.querySelector('.rail');
+  const btns = [...document.querySelectorAll('.rail__btn')];
+  const stack = btns.reduce((a, b) => a + b.getBoundingClientRect().height, 0)
+    + (btns.length - 1) * parseFloat(getComputedStyle(r).gap || '0');
+  return {
+    count: btns.length,
+    stack: +stack.toFixed(1),
+    visible: r.clientHeight,
+    wrapped: btns.filter((b) => {
+      const l = b.querySelector('.rail__label');
+      return l.getBoundingClientRect().height > parseFloat(getComputedStyle(l).fontSize) * 1.45;
+    }).map((b) => b.querySelector('.rail__label').textContent),
+  };
+});
+const railOk = rail.stack <= rail.visible;
+console.log(`  ${railOk ? 'PASS' : 'FAIL'}  all ${rail.count} rail buttons fit at 390x640` +
+  `  — ${rail.stack}px of ${rail.visible}px` +
+  (railOk ? ` (${(rail.visible - rail.stack).toFixed(0)}px spare)` : ' — OVERFLOWS, an instrument is unreachable without scrolling'));
+console.log(`  ${rail.wrapped.length === 0 ? 'PASS' : 'FAIL'}  no rail label wraps to a second line` +
+  (rail.wrapped.length ? `  — ${rail.wrapped.join(', ')}` : ''));
 
 console.log(errors.length ? `\nERRORS (${errors.length}):\n` + errors.join('\n') : '\nno console errors');
 await browser.close();

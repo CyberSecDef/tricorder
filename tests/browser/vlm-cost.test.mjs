@@ -9,6 +9,13 @@
  * It loads the PROCESSOR only (a few small JSON files), never the weights, so
  * it runs in seconds and can live in the normal suite — unlike inference,
  * which takes eleven minutes on a GPU-less CI box. */
+/* NETWORKIDLE NOTE: navigation waits for domcontentloaded, not networkidle.
+ * Playwright discourages networkidle, and here it was actively harmful — the
+ * page holds an HMR socket and several suites open camera or model requests,
+ * so "500 ms of quiet" is not a state this app reliably reaches. Full runs kept
+ * dropping a suite at `navigating to ... waiting until "networkidle"`. Every
+ * suite already waits for `.engage` immediately afterwards, which is the real
+ * readiness signal, so networkidle was pure fragility. */
 import { chromium } from 'playwright-core';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,7 +34,7 @@ const browser = await chromium.launch({ executablePath: CHROME });
 const page = await (await browser.newContext({ ignoreHTTPSErrors: true })).newPage();
 page.setDefaultTimeout(120_000);
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
-await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 
 const r = await page.evaluate(async () => {
   const { AutoProcessor, RawImage } = await import('/node_modules/.vite/deps/@huggingface_transformers.js');

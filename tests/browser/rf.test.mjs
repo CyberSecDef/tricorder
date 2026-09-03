@@ -3,6 +3,13 @@
  * below horizontal. At a 1.40 m camera height the centre tap must then read
  * h/tan(30°) = 2.4249 m — a number worked out by hand, not by the code.
  * Also confirms the camera track is actually stopped on screen exit. */
+/* NETWORKIDLE NOTE: navigation waits for domcontentloaded, not networkidle.
+ * Playwright discourages networkidle, and here it was actively harmful — the
+ * page holds an HMR socket and several suites open camera or model requests,
+ * so "500 ms of quiet" is not a state this app reliably reaches. Full runs kept
+ * dropping a suite at `navigating to ... waiting until "networkidle"`. Every
+ * suite already waits for `.engage` immediately afterwards, which is the real
+ * readiness signal, so networkidle was pure fragility. */
 import { chromium } from 'playwright-core';
 
 import { dirname, join } from 'node:path';
@@ -42,7 +49,7 @@ await page.addInitScript(() => {
   };
 });
 
-await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 await page.locator('.engage').click();
 await page.waitForSelector('.rail__btn');
 

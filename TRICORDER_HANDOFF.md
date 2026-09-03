@@ -1852,3 +1852,44 @@ download guarantee, the backend probe agreeing with the actual adapter, camera
 release on unmount — and stops there. **The model's output quality has never
 been tested automatically and cannot be from here.** If this instrument ever
 starts returning nonsense, no test in this repository will notice.
+
+
+---
+
+## 21. The rail's height budget
+
+Thirteen instruments fill a phone. Measured at 390×640 — Chrome on iOS, the
+reference device — the rail was **86px taller than the space it had**, so the
+last entries needed a scroll to reach.
+
+The request was to shrink the instrument names. That alone would have done
+**nothing**, and the reason is worth recording: `.rail__btn` carried
+`min-height: 46px` while its content — 8.5px number, ~10.5px label, 7.5px
+milestone, 7px padding — needed about 34px. The button floor bound, not the
+type. Type size and button height are now separate knobs and the floor is a
+token, `--rail-btn-h`: **36px on phones, 46px at ≥620px**, because the rail
+never overflowed on a tablet and there is no reason to shrink it there.
+
+Measured after, across viewports:
+
+| viewport | fits |
+|---|---|
+| 390×600 (small phone, heavy chrome) | overflows 20px — scrolls, acceptable |
+| **390×640 (iPhone Chrome)** | **yes, 36px spare** |
+| 390×664 (iPhone Safari) | yes |
+| 430×700 (Pro Max) | yes |
+| 820×1000 (tablet) | yes, at the taller 46px button |
+
+No label wraps at any of them, which matters: a single wrapped label adds a
+line to one button and puts the whole stack back over.
+
+`smoke.test.mjs` now asserts both — that the button stack fits 390×640, and
+that no label runs to a second line. It asserts the *outcome* rather than
+either number, so tuning the token or the type is free but losing the fit is
+not. **A fourteenth instrument will fail it**, and that is the intent: the next
+person gets told, rather than discovering it on a phone.
+
+One honest trade: at 36px the buttons are below Apple's 44pt touch-target
+guidance in one dimension. They remain 78px wide, so the target is 78×36 and
+comfortably hittable in practice, but it is a real trade made deliberately to
+keep every instrument reachable without scrolling.

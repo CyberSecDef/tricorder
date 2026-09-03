@@ -87,3 +87,28 @@ pass at 21/21.
 
 **If a suite fails, read the indented lines under it before re-running.** The
 temptation to shrug and re-run is exactly what kept this hidden.
+
+
+## Known: one suite per full run can still fail at the boot gate
+
+A full run occasionally drops a single suite at
+`waiting for locator('.engage')`, and it is a *different* suite each time. It
+always passes when run on its own.
+
+Two real causes have been found and fixed — unstated timeouts, and
+`waitUntil: 'networkidle'`, which Playwright discourages and which this app
+never reliably reaches because it holds an HMR socket. Neither eliminated it
+entirely.
+
+The remaining suspect is the **dev server itself**: twenty-four suites each
+launch a browser against one Vite instance, and Vite's dependency
+re-optimisation stalls requests when the module graph changes — which it does
+constantly while developing. The obvious fix is to run the browser suites
+against `vite preview` (static files, no transform pipeline) instead of `vite`.
+That is a real change rather than a workaround, since `tests/README` already
+notes dev and production differ for the ONNX glue, and it has **not** been done
+yet.
+
+**If a suite fails, run it on its own before believing it.** And read the
+indented lines under the failure — the runner prints the exit code and output
+tail precisely so this does not have to be guesswork.

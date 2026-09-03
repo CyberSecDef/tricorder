@@ -3,6 +3,13 @@
  * mic, so there will be no echo to find. What this proves is that the graph,
  * the worklet, the frame-stamped capture and the correlation all run, and that
  * a no-return case reports itself honestly rather than inventing a distance. */
+/* NETWORKIDLE NOTE: navigation waits for domcontentloaded, not networkidle.
+ * Playwright discourages networkidle, and here it was actively harmful — the
+ * page holds an HMR socket and several suites open camera or model requests,
+ * so "500 ms of quiet" is not a state this app reliably reaches. Full runs kept
+ * dropping a suite at `navigating to ... waiting until "networkidle"`. Every
+ * suite already waits for `.engage` immediately afterwards, which is the real
+ * readiness signal, so networkidle was pure fragility. */
 import { chromium } from 'playwright-core';
 
 import { dirname, join } from 'node:path';
@@ -26,7 +33,7 @@ page.setDefaultTimeout(60_000);
 
 const errs = []; page.on('pageerror', e => errs.push(e.message));
 page.on('console', m => { if (m.type()==='error') errs.push('console: '+m.text()); });
-await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 await page.locator('.engage').click();
 await page.waitForSelector('.rail__btn');
 await page.click('.rail__btn[data-id="sonar"]');

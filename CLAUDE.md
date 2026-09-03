@@ -102,6 +102,13 @@ load-bearing: the stem is exactly one rail wide so it lines up with the buttons
 beneath it, and the arm is exactly one bar tall so it reads as continuous with
 the header.
 
+**The rail has a height budget.** Thirteen entries already fill a phone. Adding
+an instrument adds a button, and nothing else in the app notices — `smoke.test.mjs`
+asserts the stack still fits 390×640 and that no label wraps. If it fails, lower
+`--rail-btn-h` (currently 36px on phones, 46px at ≥620px); do **not** reach for
+the font size first. The type needs about 34px and the button floor is what
+actually binds, so shrinking type alone changes nothing.
+
 **Colour is theme data, not CSS.** Eight schemes live in `src/ui/palette.ts`;
 `src/ui/theme.ts` generates the per-mode custom-property blocks *from* them and
 injects one `<style>`. Never hard-code a colour:
