@@ -21,12 +21,13 @@
     <link rel="apple-touch-icon" href="/icon-180.png" />
     <link rel="icon" type="image/png" href="/favicon.png" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Antonio is vendored in public/fonts (SIL OFL 1.1). It used to come from
+         Google Fonts, which was the only request this app made to anything other
+         than its own origin; serving it locally means a deployed copy talks to
+         nobody. Preloaded because it is the display face for every heading and
+         rail label, so a swap is visible on first paint. -->
+    <link rel="preload" href="/fonts/antonio-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/fonts/antonio.css" />
   </head>
   <body>
     <div id="app"></div>

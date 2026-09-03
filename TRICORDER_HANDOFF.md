@@ -1242,8 +1242,9 @@ and polish:
 3. **Compare the calibrated FOV between Safari and WKWebView** (§11 q.5). The
    per-browser keying makes it moot in practice, but the answer is interesting
    and one calibration run away.
-4. **Vendor the Antonio font** before a public deploy. It is the only external
-   request the app makes.
+4. ~~**Vendor the Antonio font** before a public deploy.~~ **Done 2026-09-02**
+   (§22). It is in `public/fonts`, and the deployed app was verified to contact
+   no third-party host at all.
 5. **Fill out Core.** It was renamed from *Diagnostics* on 2026-09-02 to make
    room for settings, benchmarks and an about page (§17). **Mode** (§18) and
    **About** (§19) shipped the same day. *Settings* and *benchmarks* remain,

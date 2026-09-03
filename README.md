@@ -224,11 +224,41 @@ no API exists on iOS in any browser, or the phone cannot be calibrated for it.
 They are not faked, and Core lists the absent APIs explicitly so a future
 reader does not go hunting.
 
+## Deploying
+
+Live at **https://probe.trackr.live**, served as static files from DreamHost.
+
+    npm run deploy            # build, sync, verify
+    npm run deploy -- --dry   # show what would change, touch nothing
+
+Credentials live in `.env.local` (gitignored, and it must stay that way). The
+password reaches `sshpass` through the environment, never a command line, so it
+never appears in `ps`.
+
+Two details are load-bearing:
+
+- **`.wasm` must be served as `application/wasm`.** Apache does not know the
+  type and falls back to `text/plain`, which makes ONNX Runtime's streaming
+  compiler fail somewhere deep inside itself rather than 404 anywhere useful.
+  `public/.htaccess` sets it, and the deploy script verifies it over HTTP
+  afterwards rather than trusting that the file was uploaded.
+- **No `Cross-Origin-Embedder-Policy`.** It would buy SharedArrayBuffer and
+  threaded WASM, but it also blocks the model download from `huggingface.co`,
+  which sends no CORP header. The models run on WebGPU, so the trade is a bad
+  one.
+
+The deployed app makes **no third-party requests at all** until you explicitly
+tap *Load model* on Depth or Analyze, which fetches weights from Hugging Face.
+That was verified against the live site, not assumed.
+
 ## Licence
 
 [MIT](LICENSE). Use it, change it, ship it commercially — the one condition is
 that the copyright notice and licence text travel with it. No warranty, and the
 authors carry no liability.
+
+Antonio is vendored in `public/fonts` rather than fetched from Google, which
+is what makes the no-third-party-requests claim above true.
 
 The dependencies it ships are all permissive too — Apache 2.0 (Transformers.js,
 zxing-wasm, Depth Anything V2), MIT (ONNX Runtime Web) — and Antonio is under

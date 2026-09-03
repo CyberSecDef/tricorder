@@ -12,6 +12,7 @@
     "serve-ca": "bash scripts/serve-ca.sh",
     "certs": "bash scripts/make-certs.sh",
     "copy-wasm": "node scripts/copy-ort.mjs && node scripts/copy-zxing.mjs",
+    "deploy": "bash scripts/deploy.sh",
     "test": "node tests/run.mjs",
     "test:unit": "node tests/run.mjs unit",
     "test:browser": "node tests/run.mjs browser"
