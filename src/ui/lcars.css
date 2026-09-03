@@ -837,3 +837,97 @@ body {
   line-height: 1.45;
   color: var(--text-dim);
 }
+
+/* The viewfinder gets a fixed aspect box. An unconstrained <video> takes its
+   height from the stream, and a portrait camera then pushes every control on
+   this screen below the fold. */
+.analyze__view {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 42dvh;
+  background: var(--surface);
+  border-radius: 2px;
+  border-left: 4px solid var(--light2);
+  overflow: hidden;
+}
+.analyze__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ---------- Analyze (§20) ------------------------------------------------
+   Framed deliberately unlike a readout. The answer is prose from a language
+   model, not a quantity, and it must not borrow the visual grammar the rest of
+   the app uses for measurements. */
+
+.analyze__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.analyze__tag {
+  font-family: var(--font-lcars);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: var(--warn);
+  color: var(--ink);
+  padding: 2px 7px;
+  border-radius: 2px;
+}
+
+.analyze__model {
+  font-family: var(--font-data);
+  font-size: 10.5px;
+  color: var(--text-dimmer);
+  word-break: break-all;
+}
+
+.analyze__row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--panel);
+  border-left: 4px solid var(--warn);
+  border-radius: 2px;
+  padding: 9px 11px;
+  margin-top: 4px;
+}
+
+.analyze__thumb {
+  flex: 0 0 auto;
+  width: 84px;
+  height: auto;
+  border-radius: 2px;
+  /* The frame that was actually analysed, so the answer cannot drift free of
+     what was in view when it was produced. */
+}
+
+.analyze__answer { flex: 1 1 auto; min-width: 0; }
+
+.analyze__q {
+  font-family: var(--font-lcars);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+
+.analyze__a {
+  font-family: var(--font-data);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+@media (max-width: 419px) {
+  .analyze__thumb { width: 64px; }
+}

@@ -1204,10 +1204,13 @@ humidity and pressure have no substitute at all.
 ## 13. Where to pick up
 
 Current state: **M1 through M5 built and pushed, plus three additions.** The
-rail holds twelve entries: eleven instruments that measure the world (Geo,
-Compass, Seismo, Spectrum, Range, Doppler, Depth, Sonar, Scan, Pulse, Vizer)
+rail holds thirteen entries: twelve instruments that measure the world (Geo,
+Compass, Seismo, Spectrum, Range, Doppler, Depth, Sonar, Scan, Pulse, Vizer,
+Analyze)
 and **Core**, the one panel that reports on the device itself — and, since
-§18, selects the colour scheme for all of them. Every planned
+§18, selects the colour scheme for all of them. Twelve of the thirteen
+instruments measure; **Analyze** (§20) is the deliberate exception and says so
+on its own face. Every planned
 placeholder has been replaced by the real thing.
 
 *(Corrected 2026-09-02: this paragraph still read "M1 and M2 built. Seven
@@ -1657,3 +1660,143 @@ server left running across a commit correctly reports the older hash — an
 equality check would fail on the very next commit and train everyone to ignore
 the suite. It asserts the hash *resolves to a real commit in this repository*
 instead, which is the claim actually being made.
+
+---
+
+## 20. Analyze — the instrument that does not measure anything
+
+"What is this?" from a photograph, using a vision-language model that runs
+entirely on the phone. It is the only screen in the app that reports something
+other than a measurement, and everything about how it is built follows from
+that.
+
+### Why on-device, when the alternatives were better
+
+Three backends were checked, and two of them were verified to work rather than
+assumed:
+
+| | verdict |
+|---|---|
+| **Gemini** | CORS preflight returns `access-control-allow-origin` for a browser origin. Direct calls work, no proxy needed. |
+| **Cloud Vision** | Same — and `WEB_DETECTION` is reverse image search proper, returning `bestGuessLabels` plus source pages. |
+| **Google Search / Lens** | Not available. `google.com/searchbyimage` answers 403 with no CORS headers, and scraping it would breach Google's terms. Custom Search takes text queries only. |
+
+Cloud Vision was the *better* technical fit and it is worth recording why: it
+returns labels **with confidence scores**, which is a measurement-shaped answer
+that could have been rendered like every other readout in this app, with source
+URLs to check it against. Gemini returns prose with no error bar available even
+in principle.
+
+On-device was chosen anyway, and the reasons are the ones this project keeps
+running into: a static host has nowhere to hide an API key (DreamHost serves
+files; anything in the bundle is public), and sending camera frames of whatever
+you happen to be pointing at to a third party changes what this app *is* — the
+README's claim that vendoring one font leaves it talking to nobody is a real
+property worth keeping.
+
+### The spike, and three traps it found
+
+The model was proven in a throwaway page before a line of the instrument was
+written. That was worth it — the depth work (§8.9) lost real time to exactly
+this class of problem.
+
+1. **Florence-2 is unusable.** It was the first choice: `<OD>` returns labelled
+   bounding boxes, which is far more tricorder-shaped than a paragraph. Its
+   merged decoder is rejected outright by the bundled ONNX Runtime — *"Subgraph
+   output (logits) is an outer scope value being returned directly."* That is a
+   bad export upstream, not something fixable here. The object boxes were lost
+   with it.
+2. **`AutoModelForVision2Seq` does not know `florence2`.** It needs
+   `Florence2ForConditionalGeneration` imported directly. SmolVLM resolves fine
+   (to `Idefics3ForConditionalGeneration`).
+3. **`shader-f16` is a per-adapter feature, not implied by WebGPU existing.**
+   Requesting `fp16` *or* `q4f16` on an adapter without it throws "The device
+   (webgpu) does not support fp16" — at session creation, *after* the download.
+   `probeBackend()` checks `adapter.features.has('shader-f16')` and picks
+   `q4`/`q8` when it is absent. Same shape as the §8.9 trap where `'gpu' in
+   navigator` was treated as a capability test; the general lesson is that
+   WebGPU capability lives on the *adapter*, never on `navigator`.
+
+### The one number that is real
+
+**MEASURED: 658 s for a single 80-token answer** — and that figure is worth
+almost nothing except as proof the path runs. The adapter was
+`google / swiftshader`: a pure software rasteriser, no GPU at all, no f16, so
+the q4 weights ran on emulated compute. Depth made the same transition from
+3000 ms to 500 ms the moment it met real hardware. **The first honest timing
+for this instrument comes from a phone**, and until then the screen says so.
+
+The answer itself was correct: a red circle on green returned *"A red circle."*
+
+### How it refuses to look like a measurement
+
+The answer is deliberately **not** a `readout` — no state dot, no unit, no σ.
+It renders in its own block, tagged `NOT A MEASUREMENT`, with the model's name
+printed above it and a thumbnail of the exact frame that produced it beside it,
+so the sentence cannot drift free of what was in view.
+
+The reasoning, which is worth keeping if this is ever revisited: a seismograph
+number can be wrong by a stated amount, and that statement is itself useful.
+This cannot be. When a small VLM is wrong it has not drifted 10% — it has
+described a different object entirely, in exactly the register it uses when
+correct. There is no confidence to display, so none is displayed, and the only
+readouts on the screen are inference time and token count, both of which are
+genuinely measured.
+
+**Nothing downloads on arrival.** 265 MB starting by itself because someone
+tapped a rail button would be indefensible, so the load is behind an explicit
+button that states the size, and the size shown depends on which dtype the
+adapter forces. `analyze.test.mjs` asserts this by watching every network
+request rather than by inspecting the UI.
+
+### The crash on capture — MEASURED, and it was not model size
+
+First run on a real phone killed the browser tab the moment it captured a
+frame. The obvious reading is "265 MB is too much for iOS", and that reading is
+wrong.
+
+Idefics3's processor ships `size.longest_edge: 2048` and
+`do_image_splitting: true`. So a 512 px capture was resized **up** to 2048 and
+then cut into tiles. Measured directly out of the processor, for one 640×480
+photograph:
+
+| | `pixel_values` | prompt tokens | input tensor |
+|---|---|---|---|
+| shipped defaults | `[1, 13, 3, 512, 512]` | 876 | **40.9 MB** |
+| clamped | `[1, 1, 3, 512, 512]` | 81 | 3.1 MB |
+
+Thirteen vision-encoder passes and a 41 MB input tensor *before a single
+activation*, from one photo, on a device already near its ceiling. Clamping to
+one tile is **10.8× on prompt tokens and 13× on input memory**.
+
+`CAPTURE_PX` had been doing nothing at all — the processor resized past it in
+both directions. **This is §8.9's depth-processor trap met from the other
+side**: there the processor silently resized *up* to the model's native size,
+here it resizes up *and then tiles*. The generalisation worth keeping is that
+with Transformers.js the processor's own config decides cost, and the canvas
+handed to it is close to irrelevant. Having documented that trap and then
+walked into its sibling is the reason `applyProcessorLimits()` now sets the
+flag on the config *and* passes it per call — Transformers.js reads
+`e.do_image_splitting ?? true` from options merged at call time, so neither
+alone is reliable.
+
+Two smaller changes went in alongside: the video is paused during inference,
+because its decode buffers are live memory on a device at its limit and nothing
+needs a moving picture while a captured frame is being analysed; and prompt
+size is now a **readout**, so the quantity that caused the crash is visible on
+screen rather than implicit.
+
+`tests/browser/vlm-cost.test.mjs` pins this. It loads the processor only — a
+few small JSON files, no weights — so it runs in seconds, and it asserts the
+shipped defaults *would* still blow up. If a future model version ships saner
+defaults that test fails loudly and the clamp can be revisited rather than
+cargo-culted.
+
+### What the test suite cannot cover
+
+Real inference. One answer takes eleven minutes on the CI-style Chromium, so
+the suite asserts everything true *before* generation — framing, the no-auto-
+download guarantee, the backend probe agreeing with the actual adapter, camera
+release on unmount — and stops there. **The model's output quality has never
+been tested automatically and cannot be from here.** If this instrument ever
+starts returning nonsense, no test in this repository will notice.

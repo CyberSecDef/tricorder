@@ -28,6 +28,7 @@ the source point back at it.
 | — | Core (mode, diagnostics, calibration, capabilities) | ✅ built |
 | — | Magnetic residual probe (§11 q.2 harness) | hidden from the rail — kept for re-testing (§8.7) |
 | + | Barcode / QR scanner | ✅ built — beyond the original ten; decodes and describes, never opens |
+| + | Analyze (on-device VLM) | ✅ built — the one screen that does **not** measure, and says so |
 | + | Pulse (PPG) | ✅ built — beyond the original ten; heart rate only, explicitly not a medical device |
 | + | Vizer | ✅ built — beyond the original ten; colour distribution of the scene, ordered as a spectrum |
 | 6 | Floor-plane rangefinder | ✅ built and **verified on device** — within inches after two-point calibration |
