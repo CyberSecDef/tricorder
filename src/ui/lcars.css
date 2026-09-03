@@ -9,26 +9,55 @@
    ========================================================================== */
 
 :root {
-  /* Canonical LCARS swatches */
-  --lc-orange:    #ff9c00;  /* Butterscotch  */
-  --lc-tangerine: #ff9966;  /* Atomic Tangerine */
-  --lc-tanoi:     #ffcc99;
-  --lc-sunflower: #ffcc00;
-  --lc-gold:      #ffcc66;  /* Golden Tanoi  */
-  --lc-violet:    #cc99cc;  /* African Violet */
-  --lc-lilac:     #cc99ff;
-  --lc-hopbush:   #cc6699;
-  --lc-bell:      #9999ff;  /* Blue Bell     */
-  --lc-anakiwa:   #99ccff;
-  --lc-mariner:   #3366cc;
-  --lc-rust:      #cc6666;  /* Chestnut Rose */
-  --lc-red:       #ff5555;
+  /* ---- Role tokens -----------------------------------------------------
+     This file is authored entirely against the roles below, never against a
+     pigment. The values here are the Standard scheme, present so the first
+     paint is correct before ui/theme.ts injects the generated per-mode blocks.
+     Everything is then overridden by :root[data-mode="…"]. Editing a colour
+     HERE only changes Standard's pre-JS fallback — the real palettes live in
+     ui/palette.ts (§18).
 
+     Role names are the rows of the source colour chart:
+       disabled  Function Disabled / Offline
+       dark1/2   Dark Colour 1 / 2
+       frame     Frame / Shoulder — elbow, header bar, section headings
+       light1/2  Light Colour 1 / 2 — values, labels
+       active    Currently Active / Selected
+     rail-1..4 are the four rotating rail-button colours, cycled from the
+     light/dark roles; for Standard they resolve to violet, gold, bell,
+     tangerine — exactly the sequence the hand-written nth-child rules used. */
+  --disabled:  #3a3a48;
+  --dark1:     #9999ff;   /* Blue Bell */
+  --dark2:     #ff9966;   /* Atomic Tangerine */
+  --frame:     #ff9c00;   /* Butterscotch */
+  --light1:    #ffcc66;   /* Golden Tanoi */
+  --light2:    #cc99cc;   /* African Violet */
+  --active:    #ffcc00;   /* Sunflower */
+  --rail-1:    #cc99cc;
+  --rail-2:    #ffcc66;
+  --rail-3:    #9999ff;
+  --rail-4:    #ff9966;
+  --rail-1-ink: #000; --rail-2-ink: #000; --rail-3-ink: #000; --rail-4-ink: #000;
+  --active-ink: #000;
+  --frame-ink:  #000;
+
+  /* Semantic state. Deliberately NOT themed — see the note in ui/theme.ts. */
+  --ok:        #66cc88;
+  --ok-lt:     #7ddc9c;   /* ok on a dark ground — text, not fills */
+  --warn:      #ffcc00;
+  --bad:       #ff5555;
+
+  /* Surfaces are black in every scheme: an LCARS alert mode recolours the
+     elements, not the ground. */
   --bg:        #000;
-  --panel:     #0b0b10;
+  --panel:     #14141c;
+  --surface:   #06060a;
   --ink:       #000;
-  --text:      var(--lc-tanoi);
+  --text:      #ffcc99;   /* Tanoi */
   --text-dim:  #9a8f80;
+  --text-dimmer: #6a6274;
+  --grid:      #1e1e28;
+  --grid-mid:  #3a3a48;
 
   --rail-w:    78px;
   --bar-h:     44px;
@@ -94,7 +123,7 @@ body {
 
 .elbow {
   position: relative;
-  background: var(--elbow-color, var(--lc-orange));
+  background: var(--elbow-color, var(--frame));
   flex: 0 0 auto;
 }
 .elbow::after {
@@ -147,7 +176,7 @@ body {
 
 .bar__fill {
   flex: 1 1 auto;
-  background: var(--lc-orange);
+  background: var(--frame);
   border-radius: 0 999px 999px 0;
   display: flex;
   align-items: center;
@@ -171,7 +200,7 @@ body {
 .bar__sub {
   flex: 1 1 0;
   min-width: 0;
-  color: #4a2f00;
+  color: color-mix(in srgb, var(--frame) 30%, var(--bg));
   font-size: 11px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -187,7 +216,7 @@ body {
 .block {
   width: 34px;
   border-radius: 2px;
-  background: var(--lc-bell);
+  background: var(--dark1);
   color: var(--ink);
   font-size: 9px;
   letter-spacing: 0.06em;
@@ -196,8 +225,8 @@ body {
   justify-content: flex-end;
   padding: 0 3px 2px 0;
 }
-.block:nth-child(2) { background: var(--lc-violet); width: 22px; }
-.block:nth-child(3) { background: var(--lc-gold);   width: 48px; }
+.block:nth-child(2) { background: var(--light2); width: 22px; }
+.block:nth-child(3) { background: var(--light1);   width: 48px; }
 @media (max-width: 619px) { .blocks { display: none; } }
 @media (max-width: 519px) { .bar__sub { display: none; } }
 
@@ -226,7 +255,7 @@ body {
   border: 0;
   font-family: inherit;
   cursor: pointer;
-  background: var(--lc-bell);
+  background: var(--dark1);
   color: var(--ink);
   border-radius: 0 0 0 0;
   min-height: 46px;
@@ -240,14 +269,15 @@ body {
   line-height: 1.02;
   transition: filter 120ms ease;
 }
-.rail__btn:nth-child(4n+1) { background: var(--lc-violet); }
-.rail__btn:nth-child(4n+2) { background: var(--lc-gold); }
-.rail__btn:nth-child(4n+3) { background: var(--lc-bell); }
-.rail__btn:nth-child(4n)   { background: var(--lc-tangerine); }
+.rail__btn:nth-child(4n+1) { background: var(--rail-1); color: var(--rail-1-ink); }
+.rail__btn:nth-child(4n+2) { background: var(--rail-2); color: var(--rail-2-ink); }
+.rail__btn:nth-child(4n+3) { background: var(--rail-3); color: var(--rail-3-ink); }
+.rail__btn:nth-child(4n)   { background: var(--rail-4); color: var(--rail-4-ink); }
 .rail__btn:active { filter: brightness(1.35); }
 .rail__btn[aria-current='true'] {
-  background: var(--lc-sunflower);
-  box-shadow: inset 0 0 0 3px #000, inset 0 0 0 6px var(--lc-sunflower);
+  background: var(--active);
+  color: var(--active-ink);
+  box-shadow: inset 0 0 0 3px var(--bg), inset 0 0 0 6px var(--active);
 }
 .rail__btn[disabled] { opacity: 0.34; cursor: default; }
 
@@ -274,7 +304,7 @@ body {
 .rail__spacer {
   flex: 1 1 auto;
   min-height: 12px;
-  background: var(--lc-rust);
+  background: var(--dark2);
   /* Turns the bottom-left corner of the whole app. This replaces the swept
      elbow that used to sit in the footer: the rail simply runs to the floor
      and rounds off, which is quieter and reads as one continuous column. */
@@ -327,23 +357,23 @@ body {
 }
 
 .readout {
-  background: #14141c;
-  border-left: 4px solid var(--lc-bell);
+  background: var(--panel);
+  border-left: 4px solid var(--dark1);
   border-radius: 2px;
   padding: 6px 9px 7px;
   min-width: 0;
 }
 .readout--wide { grid-column: 1 / -1; }
-.readout[data-state='ok']   { border-left-color: #66cc88; }
-.readout[data-state='warn'] { border-left-color: var(--lc-sunflower); }
-.readout[data-state='bad']  { border-left-color: var(--lc-red); }
-.readout[data-state='idle'] { border-left-color: #444; }
+.readout[data-state='ok']   { border-left-color: var(--ok); }
+.readout[data-state='warn'] { border-left-color: var(--warn); }
+.readout[data-state='bad']  { border-left-color: var(--bad); }
+.readout[data-state='idle'] { border-left-color: var(--disabled); }
 
 .ro-label {
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--lc-violet);
+  color: var(--light2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -353,7 +383,7 @@ body {
   font-family: var(--font-data);
   font-size: clamp(17px, 4.6vw, 25px);
   font-variant-numeric: tabular-nums;
-  color: var(--lc-gold);
+  color: var(--light1);
   line-height: 1.16;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -382,19 +412,19 @@ body {
   font-size: 11px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--lc-tangerine);
+  color: var(--frame);
   white-space: nowrap;
 }
-.sect__rule { flex: 1 1 auto; height: 3px; background: var(--lc-rust); border-radius: 2px; }
+.sect__rule { flex: 1 1 auto; height: 3px; background: var(--dark2); border-radius: 2px; }
 
 /* ---------- Canvas panels ------------------------------------------------ */
 
 .scope {
   position: relative;
   flex: 0 0 auto;
-  background: #06060a;
+  background: var(--surface);
   border-radius: 2px;
-  border-left: 4px solid var(--lc-violet);
+  border-left: 4px solid var(--light2);
   overflow: hidden;
 }
 .scope > canvas { display: block; width: 100%; height: 100%; }
@@ -419,15 +449,15 @@ body {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  background: var(--lc-gold);
+  background: var(--light1);
   color: var(--ink);
   border-radius: 999px;
   padding: 9px 20px;
   font-size: 13px;
 }
 .btn:active { filter: brightness(1.3); }
-.btn--alt { background: var(--lc-violet); }
-.btn--warn { background: var(--lc-rust); }
+.btn--alt { background: var(--light2); }
+.btn--warn { background: var(--dark2); }
 .btn[disabled] { opacity: 0.4; cursor: default; }
 
 .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -435,18 +465,18 @@ body {
 /* ---------- Notices ------------------------------------------------------ */
 
 .notice {
-  border-left: 4px solid var(--lc-sunflower);
-  background: #1b1508;
+  border-left: 4px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 11%, var(--bg));
   padding: 8px 11px;
   border-radius: 2px;
   font-size: 12.5px;
   line-height: 1.45;
-  color: var(--lc-tanoi);
+  color: var(--text);
   letter-spacing: 0.02em;
 }
-.notice--bad { border-left-color: var(--lc-red); background: #1e0b0b; }
-.notice--ok  { border-left-color: #66cc88; background: #08160e; }
-.notice strong { color: var(--lc-sunflower); }
+.notice--bad { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, var(--bg)); }
+.notice--ok  { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, var(--bg)); }
+.notice strong { color: var(--warn); }
 .notice code {
   font-family: var(--font-data);
   font-size: 11px;
@@ -460,12 +490,12 @@ body {
 /* ---------- Tables (Core) ----------------------------------------------- */
 
 .dtable { width: 100%; border-collapse: collapse; font-family: var(--font-data); font-size: 11.5px; }
-.dtable td { padding: 4px 6px; border-bottom: 1px solid #1e1e28; vertical-align: top; }
-.dtable td:first-child { color: var(--lc-violet); white-space: nowrap; letter-spacing: 0.04em; }
-.dtable td:last-child { color: var(--lc-gold); text-align: right; word-break: break-word; }
-.dtable tr[data-state='bad'] td:last-child  { color: var(--lc-red); }
-.dtable tr[data-state='warn'] td:last-child { color: var(--lc-sunflower); }
-.dtable tr[data-state='ok'] td:last-child   { color: #7ddc9c; }
+.dtable td { padding: 4px 6px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.dtable td:first-child { color: var(--light2); white-space: nowrap; letter-spacing: 0.04em; }
+.dtable td:last-child { color: var(--light1); text-align: right; word-break: break-word; }
+.dtable tr[data-state='bad'] td:last-child  { color: var(--bad); }
+.dtable tr[data-state='warn'] td:last-child { color: var(--warn); }
+.dtable tr[data-state='ok'] td:last-child   { color: var(--ok-lt); }
 
 /* ---------- Boot gate ---------------------------------------------------- */
 
@@ -492,7 +522,7 @@ body {
 .boot__title {
   font-size: clamp(30px, 11vw, 62px);
   letter-spacing: 0.2em;
-  color: var(--lc-orange);
+  color: var(--frame);
   line-height: 0.94;
   text-transform: uppercase;
   font-weight: 700;
@@ -509,7 +539,7 @@ body {
   border: 0;
   cursor: pointer;
   font-family: inherit;
-  background: var(--lc-orange);
+  background: var(--frame);
   color: var(--ink);
   font-size: clamp(24px, 8vw, 40px);
   font-weight: 700;
@@ -531,17 +561,17 @@ body {
   letter-spacing: 0.04em;
   white-space: pre-wrap;
 }
-.boot__log .ok  { color: #7ddc9c; }
-.boot__log .bad { color: var(--lc-red); }
-.boot__log .warn{ color: var(--lc-sunflower); }
+.boot__log .ok  { color: var(--ok-lt); }
+.boot__log .bad { color: var(--bad); }
+.boot__log .warn{ color: var(--warn); }
 
 /* ---------- Misc --------------------------------------------------------- */
 
 .mono { font-family: var(--font-data); }
 .dim  { color: var(--text-dim); }
-.warnc { color: var(--lc-sunflower); }
-.badc  { color: var(--lc-red); }
-.okc   { color: #7ddc9c; }
+.warnc { color: var(--warn); }
+.badc  { color: var(--bad); }
+.okc   { color: var(--ok-lt); }
 
 .chip {
   display: inline-block;
@@ -551,12 +581,12 @@ body {
   text-transform: uppercase;
   padding: 2px 7px;
   border-radius: 999px;
-  background: var(--lc-mariner);
-  color: #fff;
+  background: var(--dark1);
+  color: var(--text);
 }
-.chip--warn { background: var(--lc-sunflower); color: #000; }
-.chip--bad  { background: var(--lc-red); color: #000; }
-.chip--ok   { background: #2f8f57; color: #000; }
+.chip--warn { background: var(--warn); color: var(--ink); }
+.chip--bad  { background: var(--bad); color: var(--ink); }
+.chip--ok   { background: color-mix(in srgb, var(--ok) 62%, var(--bg)); color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
@@ -604,15 +634,15 @@ body {
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--lc-violet);
+  color: var(--light2);
 }
 .rf__input {
   font-family: var(--font-data);
   font-size: 16px;   /* < 16px makes iOS zoom the viewport on focus */
-  background: #14141c;
-  color: var(--lc-gold);
+  background: var(--panel);
+  color: var(--light1);
   border: 0;
-  border-left: 4px solid var(--lc-bell);
+  border-left: 4px solid var(--dark1);
   border-radius: 2px;
   padding: 7px 9px;
   width: 108px;
@@ -623,8 +653,8 @@ body {
 .step { display: flex; flex-direction: column; gap: 8px; }
 
 .btn[aria-current='true'] {
-  box-shadow: inset 0 0 0 3px #000, inset 0 0 0 6px var(--lc-sunflower);
-  background: var(--lc-sunflower);
+  box-shadow: inset 0 0 0 3px var(--bg), inset 0 0 0 6px var(--active);
+  background: var(--active);
 }
 .btn[aria-current='false'] { opacity: 0.55; }
 
@@ -662,14 +692,14 @@ body {
 /* Download progress. */
 .bar__track {
   height: 6px;
-  background: #14141c;
+  background: var(--panel);
   border-radius: 999px;
   overflow: hidden;
 }
 .bar__prog {
   height: 100%;
   width: 0%;
-  background: var(--lc-gold);
+  background: var(--light1);
   transition: width 200ms linear;
 }
 
@@ -680,9 +710,9 @@ body {
   font-family: var(--font-data);
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--lc-gold);
-  background: #14141c;
-  border-left: 4px solid var(--lc-sunflower);
+  color: var(--light1);
+  background: var(--panel);
+  border-left: 4px solid var(--warn);
   border-radius: 2px;
   padding: 8px 10px;
   max-height: 34dvh;
@@ -695,9 +725,9 @@ body {
 .scan__hist {
   font-family: var(--font-data);
   font-size: 11px;
-  color: var(--lc-tanoi);
+  color: var(--text);
   padding: 4px 0;
-  border-bottom: 1px solid #1e1e28;
+  border-bottom: 1px solid var(--grid);
   word-break: break-all;
 }
 
@@ -717,4 +747,62 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* ---------- Mode picker (Core §18) ---------------------------------------
+   Each button is rendered in the palette it selects, not in the active one:
+   a colour chooser painted in the current colours is just a list of words.
+   Hence the inline background styles on .mode__bar / .mode__sw — they are
+   per-scheme data, not theme tokens, and are the one place in this file where
+   a literal colour legitimately reaches the DOM. */
+
+.modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: var(--gap);
+  margin: 6px 0 8px;
+}
+
+.mode {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 0 6px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-lcars);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  overflow: hidden;
+  /* Reserve the selected ring at rest so selecting does not shift layout. */
+  box-shadow: inset 0 0 0 2px transparent;
+  transition: box-shadow 120ms linear;
+}
+
+.mode__bar { display: block; height: 14px; width: 100%; }
+.mode__name { padding: 0 7px; text-align: left; }
+
+.mode__swatches { display: flex; gap: 2px; padding: 0 7px; }
+.mode__sw { flex: 1 1 0; height: 7px; border-radius: 1px; }
+
+.mode[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 2px var(--active);
+}
+.mode[aria-pressed='true'] .mode__name { color: var(--active); }
+
+.mode:focus-visible { outline: 2px solid var(--active); outline-offset: 2px; }
+
+.mode__caption {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 2px 2px 8px;
+}
+.mode__caption strong { color: var(--text); letter-spacing: 0.08em; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mode { transition: none; }
 }

@@ -38,6 +38,7 @@ import { orientation } from '../sensors/orientation';
 import { residual, resetFilters, WINDOW_S, DETREND_TAU } from '../sensors/residual';
 import { angleDelta } from '../lib/vec';
 import * as storage from '../lib/storage';
+import { theme } from '../ui/theme';
 
 /** Rotation below this is not a sweep; the residual would be meaningless. */
 const MIN_SWEEP_DEG = 90;
@@ -490,8 +491,9 @@ export class MagProbeInstrument extends Instrument {
         : this.protocol === 'static' ? (staticOk ? 'ok' : 'bad')
         : (sweepOk ? 'ok' : 'warn'));
 
-      this.drawTrace(resScope, (s) => s.residual, '#ffcc66', 'symmetric');
-      this.drawTrace(accScope, (s) => s.accuracy, '#cc99ff', 'positive');
+      const col = theme();
+      this.drawTrace(resScope, (s) => s.residual, col.light1, 'symmetric');
+      this.drawTrace(accScope, (s) => s.accuracy, col.light2, 'positive');
     });
   }
 
@@ -502,13 +504,14 @@ export class MagProbeInstrument extends Instrument {
     mode: 'symmetric' | 'positive',
   ): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     ctx.clearRect(0, 0, w, h);
 
     const d = this.trace;
     if (d.length < 2) {
-      ctx.fillStyle = '#3a3a48';
+      ctx.fillStyle = col.gridMid;
       ctx.font = "11px ui-monospace, monospace";
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -524,7 +527,7 @@ export class MagProbeInstrument extends Instrument {
       ? (v: number) => h / 2 - (v / max) * (h / 2 - 12)
       : (v: number) => h - 12 - (Math.max(v, 0) / max) * (h - 24);
 
-    ctx.strokeStyle = '#1e1e28';
+    ctx.strokeStyle = col.grid;
     ctx.lineWidth = 1;
     ctx.beginPath();
     const zero = yOf(0);
@@ -540,7 +543,7 @@ export class MagProbeInstrument extends Instrument {
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    ctx.fillStyle = '#9a8f80';
+    ctx.fillStyle = col.dim;
     ctx.font = "9px ui-monospace, monospace";
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';

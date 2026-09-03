@@ -25,7 +25,7 @@ the source point back at it.
 | 3 | Compass / attitude | ✅ built |
 | 4 | Seismograph / vibration | ✅ built |
 | 5 | Audio spectrum analyzer | ✅ built |
-| — | Core (diagnostics, calibration, capabilities) | ✅ built |
+| — | Core (mode, diagnostics, calibration, capabilities) | ✅ built |
 | — | Magnetic residual probe (§11 q.2 harness) | hidden from the rail — kept for re-testing (§8.7) |
 | + | Barcode / QR scanner | ✅ built — beyond the original ten; decodes and describes, never opens |
 | + | Pulse (PPG) | ✅ built — beyond the original ten; heart rate only, explicitly not a medical device |

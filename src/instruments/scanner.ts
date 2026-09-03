@@ -29,6 +29,7 @@ import { Instrument } from '../ui/screen';
 import { el, append, readout, section, notice, escapeHtml, clear } from '../ui/dom';
 import { acquireCamera, CameraUnavailableError, type CameraHandle } from '../sensors/camera';
 import { analyse, makeVisible, type PayloadAnalysis } from '../lib/payload';
+import { theme, alpha } from '../ui/theme';
 
 /** Decode at this resolution — plenty for a code filling a third of the frame. */
 const SCAN_W = 640;
@@ -267,10 +268,11 @@ export class ScannerInstrument extends Instrument {
 
   private drawOverlay(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     ctx.clearRect(0, 0, w, h);
+    const col = theme();
 
     // Aiming guide.
     const s = Math.min(w, h) * 0.6;
-    ctx.strokeStyle = this.corners ? '#66cc88' : '#ff9c0066';
+    ctx.strokeStyle = this.corners ? col.ok : alpha(col.frame, 0.4);
     ctx.lineWidth = 2;
     const x0 = (w - s) / 2, y0 = (h - s) / 2, c = s * 0.18;
     for (const [ax, ay, bx, by, cx, cy] of [
@@ -294,7 +296,7 @@ export class ScannerInstrument extends Instrument {
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       });
       ctx.closePath();
-      ctx.strokeStyle = '#66cc88';
+      ctx.strokeStyle = col.ok;
       ctx.lineWidth = 3;
       ctx.stroke();
     }

@@ -30,6 +30,7 @@ import { el, append, readout, autoCanvas, fmt, section, notice, escapeHtml, clea
 import { acquireCamera, CameraUnavailableError, type CameraHandle } from '../sensors/camera';
 import { RingBuffer } from '../lib/dsp';
 import { estimateRate, BandPass, MIN_HZ, MAX_HZ, type RateEstimate } from '../lib/pulse';
+import { theme } from '../ui/theme';
 
 /** Sampling rate, Hz. Comfortably above the camera's ~30 fps ceiling is pointless. */
 const SAMPLE_HZ = 30;
@@ -268,12 +269,13 @@ export class PulseInstrument extends Instrument {
 
   private drawWave(c: ReturnType<typeof autoCanvas>): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     ctx.clearRect(0, 0, w, h);
     const d = this.buf.toArray();
     if (d.length < 8) {
-      ctx.fillStyle = '#3a3a48';
+      ctx.fillStyle = col.gridMid;
       ctx.font = '11px ui-monospace, monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(this.running ? 'WAITING FOR A FINGER' : 'NOT RUNNING', w / 2, h / 2);
@@ -282,7 +284,7 @@ export class PulseInstrument extends Instrument {
     let max = 1e-6;
     for (let i = 0; i < d.length; i++) max = Math.max(max, Math.abs(d[i]));
     const mid = h / 2;
-    ctx.strokeStyle = '#1e1e28';
+    ctx.strokeStyle = col.grid;
     ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(w, mid); ctx.stroke();
     ctx.beginPath();
     for (let i = 0; i < d.length; i++) {
@@ -290,13 +292,14 @@ export class PulseInstrument extends Instrument {
       const y = mid - (d[i] / max) * (h / 2 - 6);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = '#ff5555';
+    ctx.strokeStyle = col.trace[0];
     ctx.lineWidth = 1.6;
     ctx.stroke();
   }
 
   private drawSpectrum(c: ReturnType<typeof autoCanvas>): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     ctx.clearRect(0, 0, w, h);
@@ -309,11 +312,11 @@ export class PulseInstrument extends Instrument {
     const barW = w / sp.length;
     for (let i = 0; i < sp.length; i++) {
       const bh = (sp[i] / max) * (h - 18);
-      ctx.fillStyle = i === e.peakBin ? '#ff5555' : '#3366cc';
+      ctx.fillStyle = i === e.peakBin ? col.active : col.dark1;
       ctx.fillRect(i * barW, h - 14 - bh, Math.max(barW - 0.5, 1), bh);
     }
     ctx.font = '9px ui-monospace, monospace';
-    ctx.fillStyle = '#6a6274';
+    ctx.fillStyle = col.dimmer;
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     for (const bpm of [60, 90, 120, 150, 180]) {
       const hz = bpm / 60;

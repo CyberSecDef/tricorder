@@ -24,6 +24,8 @@ import { probeCameraCapabilities, CameraUnavailableError } from '../sensors/came
 import { TARGET, type ExpectedCapability } from '../lib/platform';
 import type { Vec3 } from '../lib/vec';
 import { lerp, len } from '../lib/vec';
+import { setMode, mode, onThemeChange } from '../ui/theme';
+import { SCHEMES, RAIL_ROTATION, type Scheme } from '../ui/palette';
 
 type State = 'ok' | 'warn' | 'bad' | '';
 
@@ -43,6 +45,10 @@ export class CoreInstrument extends Instrument {
   protected build(root: HTMLElement): void {
     const scroll = el('div', { class: 'stage__scroll' });
     append(root, scroll);
+
+    // --- Mode (§18) -------------------------------------------------------
+    // First on the page because it changes every other page.
+    append(scroll, section('Mode'), this.buildModePicker());
 
     const caps = refresh();
     const unlocked = unlockResult();
@@ -246,6 +252,54 @@ export class CoreInstrument extends Instrument {
         g ? `instantaneous ${vecStr(g, 2)} · |g| ${fmt(s ? len(s) : 0, 3)}` : 'awaiting devicemotion');
       rawRead.setState(s ? (Math.abs(len(s) - 9.80665) < 0.4 ? 'ok' : 'warn') : 'idle');
     });
+  }
+
+  /**
+   * Colour-scheme picker. Each button previews the scheme it selects, in the
+   * scheme's own colours: the frame stripe, then the four rail colours in the
+   * order the rail actually cycles them. A palette chooser rendered in the
+   * current palette would be a list of names, which tells the user nothing.
+   */
+  private buildModePicker(): HTMLElement {
+    const wrap = el('div', { class: 'modes' });
+    const buttons = new Map<string, HTMLElement>();
+
+    for (const sc of SCHEMES) {
+      const swatches = el('div', { class: 'mode__swatches' },
+        ...RAIL_ROTATION.map((r) =>
+          el('span', { class: 'mode__sw', style: `background:${sc.palette[r]}` })));
+
+      const btn = el('button', {
+        class: 'mode', type: 'button',
+        'data-mode': sc.id,
+        'aria-pressed': String(sc.id === mode()),
+        title: `${sc.name} — ${sc.use}`,
+      },
+        el('span', { class: 'mode__bar', style: `background:${sc.palette.frame}` }),
+        el('span', { class: 'mode__name', text: sc.short }),
+        swatches);
+
+      btn.addEventListener('click', () => setMode(sc.id));
+      buttons.set(sc.id, btn);
+      append(wrap, btn);
+    }
+
+    const caption = el('div', { class: 'mode__caption' });
+    const describe = (): void => {
+      const sc: Scheme = SCHEMES.find((x) => x.id === mode()) ?? SCHEMES[0];
+      clear(caption);
+      append(caption, el('strong', { text: sc.name }), el('span', { text: ` — ${sc.use}` }));
+      for (const [id, b] of buttons) b.setAttribute('aria-pressed', String(id === mode()));
+    };
+    describe();
+    this.onCleanup(onThemeChange(describe));
+
+    return el('div', {}, wrap, caption,
+      notice('warn',
+        'Seven of these are sampled from CupcakeEternity’s <em>Starfleet LCARS Colour Schemes · 25th Century</em> chart; ' +
+        '<strong>Standard</strong> is this app’s original palette. The choice is remembered on this device. ' +
+        '<strong>The three state colours — ok, caution, failure — do not change with the mode</strong>, deliberately: ' +
+        'Red Alert would otherwise render all three in the same red, and every readout here is a measurement whose state you are meant to be able to read at a glance.'));
   }
 }
 

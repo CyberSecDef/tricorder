@@ -15,6 +15,7 @@ import { el, append, readout, autoCanvas, fmt, section, notice } from '../ui/dom
 import { motion } from '../sensors/motion';
 import { HighPass, RingBuffer, magnitudeSpectrum, hann, parabolicPeak, rms } from '../lib/dsp';
 import { len } from '../lib/vec';
+import { theme } from '../ui/theme';
 
 /** ~60 Hz × 4 s, rounded to a power of two for the FFT. */
 const FFT_N = 256;
@@ -198,6 +199,7 @@ export class SeismographInstrument extends Instrument {
 
   private drawWave(c: ReturnType<typeof autoCanvas>): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     ctx.clearRect(0, 0, w, h);
@@ -205,7 +207,7 @@ export class SeismographInstrument extends Instrument {
     const scale = this.waveScale();
     const mid = h / 2;
 
-    ctx.strokeStyle = '#1e1e28';
+    ctx.strokeStyle = col.grid;
     ctx.lineWidth = 1;
     for (const f of [-1, -0.5, 0, 0.5, 1]) {
       const y = mid - f * (h / 2 - 4);
@@ -229,17 +231,17 @@ export class SeismographInstrument extends Instrument {
       ctx.globalAlpha = 1;
     };
 
-    plotTrace(this.traceX, this.drawX, '#cc6666', 1, 0.62);
-    plotTrace(this.traceY, this.drawY, '#66cc88', 1, 0.62);
-    plotTrace(this.traceZ, this.drawZ, '#6699ff', 1, 0.62);
-    plotTrace(this.trace, this.drawM, '#ffcc66', 1.6, 1);
+    plotTrace(this.traceX, this.drawX, col.trace[2], 1, 0.62);
+    plotTrace(this.traceY, this.drawY, col.trace[1], 1, 0.62);
+    plotTrace(this.traceZ, this.drawZ, col.trace[3], 1, 0.62);
+    plotTrace(this.trace, this.drawM, col.trace[0], 1.6, 1);
 
     // Bottom-left: the top-right corner belongs to .scope__cap.
     ctx.font = "9px ui-monospace, monospace";
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     let lx = 8;
-    for (const [label, colour] of [['X', '#cc6666'], ['Y', '#66cc88'], ['Z', '#6699ff'], ['|a|', '#ffcc66']] as const) {
+    for (const [label, colour] of [['X', col.trace[2]], ['Y', col.trace[1]], ['Z', col.trace[3]], ['|a|', col.trace[0]]] as const) {
       ctx.fillStyle = colour;
       ctx.fillText(`▬ ${label}`, lx, h - 5);
       lx += ctx.measureText(`▬ ${label}`).width + 9;
@@ -248,6 +250,7 @@ export class SeismographInstrument extends Instrument {
 
   private drawSpectrum(c: ReturnType<typeof autoCanvas>, binHz: number, nyquist: number): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h || !binHz) return;
     ctx.clearRect(0, 0, w, h);
@@ -261,13 +264,13 @@ export class SeismographInstrument extends Instrument {
       const v = this.spectrum[i] / max;
       const bh = v * (h - 18);
       const x = (i - 2) * barW;
-      ctx.fillStyle = i === Math.round(this.dominantHz / binHz) ? '#ff9c00' : '#3366cc';
+      ctx.fillStyle = i === Math.round(this.dominantHz / binHz) ? col.frame : col.dark1;
       ctx.fillRect(x, h - 14 - bh, Math.max(barW - 0.5, 0.8), bh);
     }
 
     // Frequency axis
-    ctx.strokeStyle = '#1e1e28';
-    ctx.fillStyle = '#9a8f80';
+    ctx.strokeStyle = col.grid;
+    ctx.fillStyle = col.dim;
     ctx.font = "9px ui-monospace, monospace";
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';

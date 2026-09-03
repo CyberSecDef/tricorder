@@ -26,6 +26,7 @@ import {
   hueDistribution, binHue, hueToWavelength, binColor, BINS, HUE_SPAN,
   type HueDistribution,
 } from '../lib/huespectrum';
+import { theme } from '../ui/theme';
 
 /** Sampling resolution. 160x120 is 19 200 pixels — ample, and cheap. */
 const SAMPLE_W = 160;
@@ -167,6 +168,7 @@ export class VizerInstrument extends Instrument {
    */
   private draw(c: ReturnType<typeof autoCanvas>): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     ctx.clearRect(0, 0, w, h);
@@ -205,10 +207,10 @@ export class VizerInstrument extends Instrument {
 
     // Wavelength axis.
     ctx.font = '9px ui-monospace, monospace';
-    ctx.fillStyle = '#6a6274';
+    ctx.fillStyle = col.dimmer;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.strokeStyle = '#1e1e28';
+    ctx.strokeStyle = col.grid;
     for (const nm of [700, 620, 580, 530, 490, 460, 420]) {
       const hue = wavelengthToHue(nm);
       const x = (hue / HUE_SPAN) * w;

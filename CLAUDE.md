@@ -96,13 +96,36 @@ Settings** has to be switched on too, and that is the step everyone misses.
 
 ## Aesthetics
 
-Full LCARS. The design system is `src/ui/lcars.css`, driven by custom
-properties at the top — `--rail-w`, `--bar-h`, `--elbow-h`, `--elbow-ext`,
-`--elbow-r`, `--inner-r` and the swatch palette. The elbow geometry is
+Full LCARS. Geometry lives in `src/ui/lcars.css` — `--rail-w`, `--bar-h`,
+`--elbow-h`, `--elbow-ext`, `--elbow-r`, `--inner-r`. The elbow geometry is
 load-bearing: the stem is exactly one rail wide so it lines up with the buttons
 beneath it, and the arm is exactly one bar tall so it reads as continuous with
 the header.
 
-**Instrument canvases still hard-code their colours** rather than reading the
-tokens. A palette change will not reach the traces and scopes until that is
-fixed; it is the obvious next move for any serious re-skin.
+**Colour is theme data, not CSS.** Eight schemes live in `src/ui/palette.ts`;
+`src/ui/theme.ts` generates the per-mode custom-property blocks *from* them and
+injects one `<style>`. Never hard-code a colour:
+
+- **In CSS**, use a role token — `--frame`, `--dark1/2`, `--light1/2`,
+  `--active`, `--rail-1..4`, `--text`, `--grid`, `--grid-mid`. Never a pigment
+  and never a literal. `lcars.css` carries the Standard values on bare `:root`
+  purely as the pre-JS first paint.
+- **In canvas code**, `const col = theme();` then `col.light1`, `col.grid`,
+  `col.trace[n]`, `alpha(col.frame, 0.6)`. `theme()` is a field read, so
+  calling it per frame is free. Anything that *caches* colour (a gradient, an
+  ImageData, an offscreen canvas) must also subscribe via `onThemeChange`.
+- **Text on a coloured ground** takes `ink(bg, text)` — or `--rail-N-ink` in
+  CSS — never a fixed black. Standard's rail swatches are all light so black
+  worked; Red and Blue Alert have near-black swatches where it does not.
+
+Three carve-outs, all deliberate, all asserted by tests:
+
+1. **`--ok` / `--warn` / `--bad` never change with the mode.** Red Alert would
+   otherwise draw all three states in the same red, and every readout here is a
+   measurement whose state must be readable at a glance.
+2. **Vizer's spectrum and `lib/huespectrum.ts` are never themed.** Those
+   colours *are* the measurement — they are the hues present in the camera
+   feed. `tests/browser/mode.test.mjs` asserts its hue histogram does *not*
+   move when the mode does.
+3. **Surfaces stay black in every scheme.** An LCARS alert mode recolours the
+   elements, not the ground.

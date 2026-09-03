@@ -13,6 +13,7 @@ import { orientation } from '../sensors/orientation';
 import { gravity, calibration } from '../sensors/gravity';
 import { CircularEMA, RAD, wrap360 } from '../lib/vec';
 import { capabilities } from '../lib/capabilities';
+import { theme } from '../ui/theme';
 
 const CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 
@@ -147,6 +148,7 @@ export class CompassInstrument extends Instrument {
   /** North-up card that rotates under a fixed lubber line, as a real compass does. */
   private drawRose(c: ReturnType<typeof autoCanvas>, heading: number | null, accuracy: number | null): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     const cx = w / 2, cy = h / 2;
@@ -159,7 +161,7 @@ export class CompassInstrument extends Instrument {
       const halfArc = Math.min(accuracy, 90) * RAD;
       ctx.beginPath();
       ctx.arc(cx, cy, R + 4, -Math.PI / 2 - halfArc, -Math.PI / 2 + halfArc);
-      ctx.strokeStyle = accuracy <= 15 ? '#66cc88' : accuracy <= 35 ? '#ffcc00' : '#ff5555';
+      ctx.strokeStyle = accuracy <= 15 ? col.ok : accuracy <= 35 ? col.warn : col.bad;
       ctx.lineWidth = 5;
       ctx.lineCap = 'butt';
       ctx.stroke();
@@ -179,7 +181,7 @@ export class CompassInstrument extends Instrument {
       ctx.beginPath();
       ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
       ctx.lineTo(Math.cos(a) * R, Math.sin(a) * R);
-      ctx.strokeStyle = major ? '#ff9c00' : mid ? '#cc99cc' : '#3a3a48';
+      ctx.strokeStyle = major ? col.frame : mid ? col.light2 : col.gridMid;
       ctx.lineWidth = major ? 2.5 : 1.4;
       ctx.stroke();
     }
@@ -196,7 +198,7 @@ export class CompassInstrument extends Instrument {
       ctx.save();
       ctx.translate(x, y);
       if (heading !== null) ctx.rotate(heading * RAD);
-      ctx.fillStyle = deg === 0 ? '#ff5555' : i % 2 === 0 ? '#ffcc66' : '#9999ff';
+      ctx.fillStyle = deg === 0 ? col.bad : i % 2 === 0 ? col.light1 : col.dark1;
       ctx.fillText(CARDINALS[i], 0, 0);
       ctx.restore();
     }
@@ -208,19 +210,20 @@ export class CompassInstrument extends Instrument {
     ctx.lineTo(cx - 7, cy - R + 13);
     ctx.lineTo(cx + 7, cy - R + 13);
     ctx.closePath();
-    ctx.fillStyle = '#ff9c00';
+    ctx.fillStyle = col.frame;
     ctx.fill();
 
     ctx.font = `700 ${Math.max(20, R * 0.34)}px ui-monospace, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = heading === null ? '#555' : '#ffcc66';
+    ctx.fillStyle = heading === null ? col.disabled : col.light1;
     ctx.fillText(heading === null ? '---' : `${Math.round(wrap360(heading)).toString().padStart(3, '0')}°`, cx, cy);
   }
 
   /** Two-axis bubble. Deflection is clamped to ±30° so small tilts read clearly. */
   private drawBubble(c: ReturnType<typeof autoCanvas>, pitch: number, roll: number): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     const cx = w / 2, cy = h / 2;
@@ -228,7 +231,7 @@ export class CompassInstrument extends Instrument {
 
     ctx.clearRect(0, 0, w, h);
 
-    ctx.strokeStyle = '#3a3a48';
+    ctx.strokeStyle = col.gridMid;
     ctx.lineWidth = 1.5;
     for (const f of [1, 2 / 3, 1 / 3]) {
       ctx.beginPath();
@@ -249,14 +252,14 @@ export class CompassInstrument extends Instrument {
     const level = Math.abs(pitch) < 1 && Math.abs(roll) < 1;
     ctx.beginPath();
     ctx.arc(bx, by, 13, 0, Math.PI * 2);
-    ctx.fillStyle = level ? '#66cc88' : '#ff9c00';
+    ctx.fillStyle = level ? col.ok : col.frame;
     ctx.fill();
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
     ctx.stroke();
 
     ctx.font = "10px ui-monospace, monospace";
-    ctx.fillStyle = '#9a8f80';
+    ctx.fillStyle = col.dim;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText(`±${RANGE}° FULL SCALE`, 8, 8);

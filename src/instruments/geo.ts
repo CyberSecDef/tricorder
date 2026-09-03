@@ -14,6 +14,7 @@ import { geo, geoError, fixQuality, toDMS, type GeoSample } from '../sensors/geo
 import { orientation } from '../sensors/orientation';
 import { haversine } from '../lib/dsp';
 import { wrap360 } from '../lib/vec';
+import { theme } from '../ui/theme';
 
 interface TrackPoint { lat: number; lon: number; acc: number; t: number }
 
@@ -190,12 +191,13 @@ export class GeoInstrument extends Instrument {
   /** Equirectangular projection — adequate over a session-sized track. */
   private drawTrack(c: ReturnType<typeof autoCanvas>): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     ctx.clearRect(0, 0, w, h);
 
     if (this.track.length < 2) {
-      ctx.fillStyle = '#3a3a48';
+      ctx.fillStyle = col.gridMid;
       ctx.font = "11px ui-monospace, monospace";
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -223,7 +225,7 @@ export class GeoInstrument extends Instrument {
       const x = px(i), y = py(i);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = '#ffcc66';
+    ctx.strokeStyle = col.light1;
     ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.stroke();
@@ -231,7 +233,7 @@ export class GeoInstrument extends Instrument {
     // Start marker
     ctx.beginPath();
     ctx.arc(px(0), py(0), 4, 0, Math.PI * 2);
-    ctx.fillStyle = '#66cc88';
+    ctx.fillStyle = col.ok;
     ctx.fill();
 
     // Current position with its accuracy radius, drawn to scale.
@@ -239,26 +241,26 @@ export class GeoInstrument extends Instrument {
     const accPx = this.track[i].acc * (s / 111320); // metres → degrees → px
     ctx.beginPath();
     ctx.arc(px(i), py(i), Math.max(3, Math.min(accPx, Math.min(w, h) / 2)), 0, Math.PI * 2);
-    ctx.strokeStyle = '#3366cc';
+    ctx.strokeStyle = col.dark1;
     ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.beginPath();
     ctx.arc(px(i), py(i), 4.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#ff9c00';
+    ctx.fillStyle = col.frame;
     ctx.fill();
 
     // Scale bar
     const metresPerPx = 111320 / s;
     const barMetres = niceNumber(80 * metresPerPx);
     const barPx = barMetres / metresPerPx;
-    ctx.strokeStyle = '#9a8f80';
+    ctx.strokeStyle = col.dim;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(10, h - 12); ctx.lineTo(10 + barPx, h - 12);
     ctx.moveTo(10, h - 16); ctx.lineTo(10, h - 8);
     ctx.moveTo(10 + barPx, h - 16); ctx.lineTo(10 + barPx, h - 8);
     ctx.stroke();
-    ctx.fillStyle = '#9a8f80';
+    ctx.fillStyle = col.dim;
     ctx.font = "10px ui-monospace, monospace";
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';

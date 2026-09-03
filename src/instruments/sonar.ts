@@ -28,6 +28,7 @@ import { el, append, readout, autoCanvas, fmt, section, notice, escapeHtml, clea
 import { acquireMic, profileApplied, AudioUnavailableError, type MicHandle } from '../sensors/audio';
 import { SonarCapture } from '../sensors/sonar-capture';
 import { makeChirp, matchedFilter, lagToRange, rangeToLag, SPEED_OF_SOUND } from '../lib/dsp';
+import { theme, alpha } from '../ui/theme';
 
 const CHIRP_MS = 10;
 
@@ -462,6 +463,7 @@ export class SonarInstrument extends Instrument {
   /** Correlation amplitude against range, with the blanked zone shaded. */
   private drawScope(c: ReturnType<typeof autoCanvas>): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     ctx.clearRect(0, 0, w, h);
@@ -486,21 +488,21 @@ export class SonarInstrument extends Instrument {
     ctx.textAlign = 'center';
     for (let m = 1; m <= MAX_RANGE_M; m++) {
       const x = xOf(rangeToLag(m, this.sampleRate));
-      ctx.strokeStyle = '#1a1a24';
+      ctx.strokeStyle = col.grid;
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h - 14); ctx.stroke();
-      ctx.fillStyle = '#4a4454';
+      ctx.fillStyle = col.gridMid;
       ctx.fillText(`${m}m`, x, h - 12);
     }
 
     // Blanked region — shaded, because nothing in it is a measurement.
-    ctx.fillStyle = '#ffffff0a';
+    ctx.fillStyle = alpha(col.text, 0.04);
     ctx.fillRect(0, 0, xOf(searchLo), h - 14);
-    ctx.fillStyle = '#6a6274';
+    ctx.fillStyle = col.dimmer;
     ctx.textAlign = 'left';
     ctx.fillText(this.directVal > 0 ? 'blanked (from direct path)' : 'blanked', 3, 4);
 
     if (!env) {
-      ctx.fillStyle = '#3a3a48';
+      ctx.fillStyle = col.gridMid;
       ctx.font = "11px ui-monospace, monospace";
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -522,17 +524,17 @@ export class SonarInstrument extends Instrument {
       const y = (h - 16) - (v / max) * (h - 26);
       if (rel === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = '#ffcc66';
+    ctx.strokeStyle = col.light1;
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
     if (this.rangeM !== null && this.snr >= 3) {
       const x = xOf(rangeToLag(this.rangeM, this.sampleRate));
-      ctx.strokeStyle = '#66cc88';
+      ctx.strokeStyle = col.ok;
       ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h - 14); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = '#66cc88';
+      ctx.fillStyle = col.ok;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
       ctx.fillText(`${this.rangeM.toFixed(3)} m`, Math.min(x + 4, w - 46), 4);

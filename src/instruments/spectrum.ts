@@ -13,6 +13,7 @@ import { Instrument } from '../ui/screen';
 import { el, append, readout, autoCanvas, fmt, section, notice, escapeHtml } from '../ui/dom';
 import { acquireMic, profileApplied, AudioUnavailableError, type MicHandle } from '../sensors/audio';
 import { parabolicPeak } from '../lib/dsp';
+import { theme, alpha } from '../ui/theme';
 
 const FFT_SIZE = 16384;
 const MIN_HZ = 20;
@@ -247,6 +248,7 @@ export class SpectrumInstrument extends Instrument {
   /** Log-frequency X axis — a linear axis wastes 90% of the width on treble. */
   private drawSpectrum(c: ReturnType<typeof autoCanvas>): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h || !this.binHz) return;
     ctx.clearRect(0, 0, w, h);
@@ -265,10 +267,10 @@ export class SpectrumInstrument extends Instrument {
     for (const hz of [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000]) {
       if (hz > maxHz) break;
       const x = xOf(hz);
-      ctx.strokeStyle = '#1e1e28';
+      ctx.strokeStyle = col.grid;
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h - 16); ctx.stroke();
-      ctx.fillStyle = '#6a6274';
+      ctx.fillStyle = col.dimmer;
       const label = hz >= 1000 ? `${hz / 1000}k` : String(hz);
       // Keep the first and last labels fully on canvas.
       const halfW = ctx.measureText(label).width / 2;
@@ -278,9 +280,9 @@ export class SpectrumInstrument extends Instrument {
     ctx.textAlign = 'left';
     for (let db = CEIL_DB; db > FLOOR_DB + 10; db -= 20) {
       const y = yOf(db);
-      ctx.strokeStyle = '#161620';
+      ctx.strokeStyle = col.plot;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-      ctx.fillStyle = '#4a4454';
+      ctx.fillStyle = col.gridMid;
       ctx.fillText(`${db}`, 3, y + 1);
     }
 
@@ -295,7 +297,7 @@ export class SpectrumInstrument extends Instrument {
         const y = yOf(this.peaks[i]);
         if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
       }
-      ctx.strokeStyle = '#cc669955';
+      ctx.strokeStyle = alpha(col.dark2, 0.33);
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -309,18 +311,18 @@ export class SpectrumInstrument extends Instrument {
     ctx.lineTo(w, h - 16);
     ctx.closePath();
     const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, '#ff9c00cc');
-    grad.addColorStop(1, '#33336600');
+    grad.addColorStop(0, alpha(col.frame, 0.8));
+    grad.addColorStop(1, alpha(col.dark1, 0));
     ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = '#ffcc66';
+    ctx.strokeStyle = col.light1;
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
     // Dominant-frequency cursor
     if (this.dominantDb > FLOOR_DB + 12) {
       const x = xOf(this.dominantHz);
-      ctx.strokeStyle = '#66cc88';
+      ctx.strokeStyle = col.ok;
       ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h - 16); ctx.stroke();
       ctx.setLineDash([]);

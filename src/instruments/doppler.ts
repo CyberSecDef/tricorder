@@ -31,6 +31,7 @@
 import { Instrument } from '../ui/screen';
 import { el, append, readout, autoCanvas, fmt, section, notice, escapeHtml, clear } from '../ui/dom';
 import { acquireMic, profileApplied, AudioUnavailableError, type MicHandle } from '../sensors/audio';
+import { theme, alpha } from '../ui/theme';
 
 /** Target carrier. Clamped below Nyquist at runtime. */
 const CARRIER_HZ = 20000;
@@ -438,6 +439,7 @@ export class DopplerInstrument extends Instrument {
   /** Spectrum around the carrier, with the guard band shaded out. */
   private drawSpectrum(c: ReturnType<typeof autoCanvas>): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h || !this.binHz) return;
     ctx.clearRect(0, 0, w, h);
@@ -450,7 +452,7 @@ export class DopplerInstrument extends Instrument {
     const yOf = (db: number) => h - 12 - ((Math.max(db, top - range) - (top - range)) / range) * (h - 20);
 
     // Guard band — shaded, because nothing in it is usable.
-    ctx.fillStyle = '#ffffff08';
+    ctx.fillStyle = alpha(col.text, 0.03);
     ctx.fillRect(xOf(-guard), 0, xOf(guard) - xOf(-guard), h - 12);
 
     ctx.beginPath();
@@ -460,16 +462,16 @@ export class DopplerInstrument extends Instrument {
       const x = xOf(k), y = yOf(db);
       if (k === -band) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = '#ffcc66';
+    ctx.strokeStyle = col.light1;
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
     // Carrier marker and velocity ticks.
-    ctx.strokeStyle = '#cc669988';
+    ctx.strokeStyle = alpha(col.dark2, 0.53);
     ctx.beginPath(); ctx.moveTo(xOf(0), 0); ctx.lineTo(xOf(0), h - 12); ctx.stroke();
 
     ctx.font = "9px ui-monospace, monospace";
-    ctx.fillStyle = '#6a6274';
+    ctx.fillStyle = col.dimmer;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     for (const v of [-4, -2, -1, 1, 2, 4]) {
@@ -485,11 +487,12 @@ export class DopplerInstrument extends Instrument {
 
   private drawTrace(c: ReturnType<typeof autoCanvas>): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     ctx.clearRect(0, 0, w, h);
     if (this.trace.length < 2) {
-      ctx.fillStyle = '#3a3a48';
+      ctx.fillStyle = col.gridMid;
       ctx.font = "11px ui-monospace, monospace";
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -501,7 +504,7 @@ export class DopplerInstrument extends Instrument {
       const t = Math.log10(Math.max(v, 0.5) / 0.5) / Math.log10(MAX / 0.5);
       return h - 12 - t * (h - 20);
     };
-    ctx.strokeStyle = '#ff555599';
+    ctx.strokeStyle = alpha(col.bad, 0.6);
     ctx.setLineDash([4, 3]);
     ctx.beginPath(); ctx.moveTo(0, yOf(ALERT_SIGMA)); ctx.lineTo(w, yOf(ALERT_SIGMA)); ctx.stroke();
     ctx.setLineDash([]);
@@ -512,7 +515,7 @@ export class DopplerInstrument extends Instrument {
       const y = yOf(this.trace[i]);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = '#66cc88';
+    ctx.strokeStyle = col.ok;
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }

@@ -1206,7 +1206,8 @@ humidity and pressure have no substitute at all.
 Current state: **M1 through M5 built and pushed, plus three additions.** The
 rail holds twelve entries: eleven instruments that measure the world (Geo,
 Compass, Seismo, Spectrum, Range, Doppler, Depth, Sonar, Scan, Pulse, Vizer)
-and **Core**, the one panel that reports on the device itself. Every planned
+and **Core**, the one panel that reports on the device itself — and, since
+§18, selects the colour scheme for all of them. Every planned
 placeholder has been replaced by the real thing.
 
 *(Corrected 2026-09-02: this paragraph still read "M1 and M2 built. Seven
@@ -1241,8 +1242,9 @@ and polish:
 4. **Vendor the Antonio font** before a public deploy. It is the only external
    request the app makes.
 5. **Fill out Core.** It was renamed from *Diagnostics* on 2026-09-02 to make
-   room for settings, benchmarks and an about page (§17). The rename is done;
-   the rooms are still empty, and deliberately not stubbed.
+   room for settings, benchmarks and an about page (§17). **Mode** shipped the
+   same day (§18); *about* and *benchmarks* are still empty, and deliberately
+   not stubbed.
 
 **Two instruments are in the tree but not in the rail**, both deliberately and
 both documented where they live: the magnetic anomaly detector (§8.7, no signal
@@ -1429,3 +1431,110 @@ which currently auto-negotiate, and whether the wake lock is held), and
 a benchmark that reports a number without saying what hardware and what thermal
 state produced it is exactly the kind of uncalibrated readout the rest of this
 project refuses to ship.
+
+---
+
+## 18. Colour schemes — Mode, and the refactor that had to happen first
+
+Core's first section is **Mode**: eight LCARS colour schemes, remembered per
+device. Seven are sampled from CupcakeEternity's *Starfleet LCARS Colour
+Schemes · 25th Century* chart (2021); the eighth, **Standard**, is the palette
+this app already had.
+
+### The chart did the hardest part
+
+The chart is organised as seven *roles* down the side against seven *schemes*
+across the top — Function Disabled, Dark 1, Dark 2, Frame/Shoulder, Light 1,
+Light 2, Currently Active. That is already a theme system, and adopting its
+rows verbatim as the role names is why `palette.ts` is a data file rather than
+an argument. The roles were not invented here.
+
+Values were sampled programmatically, not by eye: a per-channel median over the
+upper-left 55% × 62% of each swatch, avoiding the caption baked into every
+swatch's lower-right corner. Channels landing within 3 of `0x00`/`0xFF` were
+snapped to the rail — that is JPEG ringing, not design intent. Everything else
+is the artist's value ±2.
+
+**Grey Mode has five swatches, not seven.** The chart omits Dark 2 and Light 2;
+"Silent Operations / Power Conservation" is a deliberately reduced palette. The
+code aliases those two roles rather than interpolating them. Smoothing the gap
+would have invented intent the source explicitly withheld.
+
+### The refactor: 98 literals in 14 files
+
+A mode selector that only swapped CSS would have been a fraud. Colour lived in
+two places, and the second was much larger:
+
+| | Before | Themeable |
+|---|---|---|
+| CSS custom properties | 51 uses | yes |
+| Hard-coded literals in canvas code | **98, across 14 files** | **no** |
+
+Worse, the CSS tokens were named after *pigments* (`--lc-orange`,
+`--lc-violet`), so a Grey scheme would have had to redefine `--lc-orange` to a
+grey and make the token name a lie. Both problems have the same fix: a role
+layer. `lcars.css` is now authored entirely against `--frame`, `--dark1/2`,
+`--light1/2`, `--active`, `--rail-1..4`, and canvas code against `theme()`.
+
+The 98 literals turned out to be only ~26 distinct values with obvious
+structure (`#ffcc66` = value text, `#66cc88` = ok, `#1e1e28`/`#3a3a48` = grid),
+which is what made the sweep tractable. They could not be replaced mechanically
+though: the same hex means different things in different files — `#66cc88` is
+*ok* in the compass and *the Y axis* in the seismograph.
+
+### Direction of generation, and why it is backwards on purpose
+
+The palette lives in TypeScript and **CSS is generated from it**, not the other
+way round. The alternative — canvases calling `getComputedStyle()` to read
+custom properties back out — parses strings, depends on layout timing, and
+silently yields `''` during the first paint after a mode change. Generating one
+direction means one source of truth and no parsing anywhere. `lcars.css` keeps
+the Standard values on bare `:root` purely so the first paint is never
+unstyled.
+
+### Three carve-outs
+
+1. **State colours never change with the mode.** Canon says an alert scheme
+   recolours the whole console; following that literally would render *ok*,
+   *caution* and *failure* in three shades of the same red. Every readout here
+   is a measurement whose state is meant to be legible at a glance (§9), so the
+   chrome takes the alert colour and `--ok`/`--warn`/`--bad` stay put.
+2. **Vizer is not themed.** Its bars *are* the measurement — the hues actually
+   present in the camera feed. Recolouring them would recolour the answer.
+   `mode.test.mjs` asserts its hue histogram moves by < 0.25 (measured: 0.011)
+   across a mode change, while the compass and seismograph move by > 0.25
+   (measured: 1.92 and 2.00 out of a maximum 2.0).
+3. **Surfaces stay black.** An alert mode recolours the elements, not the
+   ground. This also keeps Standard exact: its panels were a neutral blue-black
+   that no amount of tinting toward Butterscotch reproduces.
+
+### Two things the tests caught that reasoning did not
+
+**The rail was illegible in three schemes.** Rail buttons always drew their
+label in black — correct for Standard, whose four swatches are all light, and
+unreadable in Red and Blue Alert, whose `dark1`/`dark2` are nearly black. Found
+by looking at a screenshot, not by thinking about it. `ink()` now picks per
+swatch, and needed *white* as a third candidate: for mid-luminance swatches
+(`#2a2aff`, `#aa0000`, `#6c5368`) neither black nor the scheme's own text
+clears 4.5:1. Worst case across all eight schemes is now 5.10:1.
+
+**"Distinguishable" is not a contrast ratio.** The first version of the state
+colour assertion used WCAG contrast and failed: `ok` vs `warn` came out at
+1.32:1. But WCAG contrast is a ratio of *relative luminances*, so it reports
+any two equally-bright colours as near-identical regardless of hue — and
+nothing about this green and this yellow is hard to tell apart. The assertion
+was measuring the wrong property. It now measures CIE76 ΔE in L\*a\*b\*, where
+the three state colours sit 78–110 apart against a just-noticeable threshold of
+about 2.3.
+
+### Where a colour may still legitimately be written by hand
+
+- `palette.ts` — the palettes themselves.
+- `.mode__bar` / `.mode__sw` inline styles — each picker button is painted in
+  the scheme it *selects*, not the active one. A colour chooser rendered in the
+  current colours is a list of words.
+- `lib/huespectrum.ts` — `hsl()` from a measured hue. That is data.
+- Pure `#000` outlines and scrims on canvas.
+
+Anywhere else, `tests/unit/palette.test.mjs` and `tests/browser/mode.test.mjs`
+are the enforcement.

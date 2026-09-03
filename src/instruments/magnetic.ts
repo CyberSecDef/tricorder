@@ -52,6 +52,7 @@ import { Instrument } from '../ui/screen';
 import { el, append, readout, autoCanvas, fmt, section, notice, clear } from '../ui/dom';
 import { residual, resetFilters, type ResidualSample } from '../sensors/residual';
 import { angleDelta } from '../lib/vec';
+import { theme, alpha } from '../ui/theme';
 
 /** Above this webkitCompassAccuracy the heading wanders more than a magnet moves it. */
 const MAX_USABLE_ACCURACY = 20;
@@ -428,12 +429,13 @@ export class MagneticInstrument extends Instrument {
   /** Log-scaled, because the index spans three orders of magnitude. */
   private drawScope(c: ReturnType<typeof autoCanvas>): void {
     const { ctx } = c;
+    const col = theme();
     const w = c.width, h = c.height;
     if (!w || !h) return;
     ctx.clearRect(0, 0, w, h);
 
     if (this.trace.length < 2) {
-      ctx.fillStyle = '#3a3a48';
+      ctx.fillStyle = col.gridMid;
       ctx.font = "11px ui-monospace, monospace";
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -453,14 +455,14 @@ export class MagneticInstrument extends Instrument {
     ctx.textAlign = 'left';
     for (const v of [1, 10, 100, 1000]) {
       const y = yOf(v);
-      ctx.strokeStyle = '#1a1a24';
+      ctx.strokeStyle = col.grid;
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(26, y); ctx.lineTo(w, y); ctx.stroke();
-      ctx.fillStyle = '#4a4454';
+      ctx.fillStyle = col.gridMid;
       ctx.fillText(`${v}×`, 3, y);
     }
     const ay = yOf(ALERT_SIGMA);
-    ctx.strokeStyle = '#ff5555aa';
+    ctx.strokeStyle = alpha(col.bad, 0.67);
     ctx.setLineDash([4, 3]);
     ctx.beginPath(); ctx.moveTo(26, ay); ctx.lineTo(w, ay); ctx.stroke();
     ctx.setLineDash([]);
@@ -471,7 +473,7 @@ export class MagneticInstrument extends Instrument {
       const y = yOf(this.trace[i].index);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = '#ffcc66';
+    ctx.strokeStyle = col.light1;
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
@@ -482,15 +484,15 @@ export class MagneticInstrument extends Instrument {
       const y = h - 14 - (Math.min(this.trace[i].acc, 90) / 90) * (h - 22);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = '#cc99ff66';
+    ctx.strokeStyle = alpha(col.light2, 0.4);
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    ctx.fillStyle = '#ffcc66';
+    ctx.fillStyle = col.light1;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     ctx.fillText('▬ index', w - 60, 5);
-    ctx.fillStyle = '#cc99ff99';
+    ctx.fillStyle = alpha(col.light2, 0.6);
     ctx.fillText('▬ accuracy', w - 4, 5);
   }
 }

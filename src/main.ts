@@ -2,6 +2,7 @@ import './ui/lcars.css';
 
 import { App, type NavEntry } from './ui/app';
 import { bootGate } from './ui/boot';
+import { initTheme } from './ui/theme';
 import { GeoInstrument } from './instruments/geo';
 import { CompassInstrument } from './instruments/compass';
 import { SeismographInstrument } from './instruments/seismograph';
@@ -44,6 +45,10 @@ const NAV: NavEntry[] = [
 async function start(): Promise<void> {
   const root = document.getElementById('app');
   if (!root) throw new Error('#app missing');
+
+  // Before the boot gate, so the gate itself is painted in the saved scheme
+  // rather than flashing Standard and then correcting itself.
+  initTheme();
 
   // Nothing mounts until the single-gesture unlock has run (§4).
   await bootGate();
