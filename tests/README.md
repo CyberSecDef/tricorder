@@ -112,3 +112,19 @@ yet.
 **If a suite fails, run it on its own before believing it.** And read the
 indented lines under the failure — the runner prints the exit code and output
 tail precisely so this does not have to be guesswork.
+
+
+## Two suites are dev-server-only
+
+`scan.test.mjs` and `vlm-cost.test.mjs` import libraries directly by dev-server
+path — `/node_modules/zxing-wasm/...` and `/node_modules/.vite/deps/...` — in
+order to poke at them without going through the instrument. Those paths do not
+exist in a production build, so both fail against `TRICORDER_URL=https://…`.
+
+That is a property of the tests, not of the app: nothing shipped references
+those paths. When verifying a deploy, run the rest:
+
+    TRICORDER_URL=https://probe.trackr.live/ node tests/browser/smoke.test.mjs
+    TRICORDER_URL=https://probe.trackr.live/ node tests/browser/about.test.mjs
+    TRICORDER_URL=https://probe.trackr.live/ node tests/browser/mode.test.mjs
+    TRICORDER_URL=https://probe.trackr.live/ node tests/browser/analyze.test.mjs
