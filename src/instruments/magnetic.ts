@@ -473,7 +473,7 @@ export class MagneticInstrument extends Instrument {
       const y = yOf(this.trace[i].index);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = col.light1;
+    ctx.strokeStyle = col.trace[0];
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
@@ -484,15 +484,15 @@ export class MagneticInstrument extends Instrument {
       const y = h - 14 - (Math.min(this.trace[i].acc, 90) / 90) * (h - 22);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = alpha(col.light2, 0.4);
+    ctx.strokeStyle = alpha(col.trace[1], 0.4);
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    ctx.fillStyle = col.light1;
+    ctx.fillStyle = col.light1T;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     ctx.fillText('▬ index', w - 60, 5);
-    ctx.fillStyle = alpha(col.light2, 0.6);
+    ctx.fillStyle = alpha(col.light2T, 0.6);
     ctx.fillText('▬ accuracy', w - 4, 5);
   }
 }

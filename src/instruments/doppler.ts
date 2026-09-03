@@ -462,7 +462,7 @@ export class DopplerInstrument extends Instrument {
       const x = xOf(k), y = yOf(db);
       if (k === -band) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = col.light1;
+    ctx.strokeStyle = col.trace[0];
     ctx.lineWidth = 1.2;
     ctx.stroke();
 

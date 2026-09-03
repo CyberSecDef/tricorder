@@ -181,7 +181,7 @@ export class CompassInstrument extends Instrument {
       ctx.beginPath();
       ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
       ctx.lineTo(Math.cos(a) * R, Math.sin(a) * R);
-      ctx.strokeStyle = major ? col.frame : mid ? col.light2 : col.gridMid;
+      ctx.strokeStyle = major ? col.frame : mid ? col.light2T : col.gridMid;
       ctx.lineWidth = major ? 2.5 : 1.4;
       ctx.stroke();
     }
@@ -198,7 +198,7 @@ export class CompassInstrument extends Instrument {
       ctx.save();
       ctx.translate(x, y);
       if (heading !== null) ctx.rotate(heading * RAD);
-      ctx.fillStyle = deg === 0 ? col.bad : i % 2 === 0 ? col.light1 : col.dark1;
+      ctx.fillStyle = deg === 0 ? col.bad : i % 2 === 0 ? col.light1T : col.trace[3];
       ctx.fillText(CARDINALS[i], 0, 0);
       ctx.restore();
     }
@@ -216,7 +216,7 @@ export class CompassInstrument extends Instrument {
     ctx.font = `700 ${Math.max(20, R * 0.34)}px ui-monospace, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = heading === null ? col.disabled : col.light1;
+    ctx.fillStyle = heading === null ? col.disabled : col.light1T;
     ctx.fillText(heading === null ? '---' : `${Math.round(wrap360(heading)).toString().padStart(3, '0')}°`, cx, cy);
   }
 

@@ -460,7 +460,7 @@ export class RangefinderInstrument extends Instrument {
 
       ctx.beginPath();
       ctx.arc(x, y, last ? 9 : 6, 0, Math.PI * 2);
-      ctx.fillStyle = beyond ? alpha(col.bad, 0.53) : last ? col.light1 : alpha(col.light1, 0.4);
+      ctx.fillStyle = beyond ? alpha(col.bad, 0.53) : last ? col.trace[0] : alpha(col.trace[0], 0.4);
       ctx.fill();
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 2;
@@ -472,7 +472,7 @@ export class RangefinderInstrument extends Instrument {
       const bx = Math.min(Math.max(x - tw / 2 - 5, 2), w - tw - 12);
       ctx.fillStyle = '#000000cc';
       ctx.fillRect(bx, y + 13, tw + 10, 17);
-      ctx.fillStyle = beyond ? col.bad : col.light1;
+      ctx.fillStyle = beyond ? col.bad : col.light1T;
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
       ctx.fillText(label, bx + 5, y + 16);
@@ -481,7 +481,7 @@ export class RangefinderInstrument extends Instrument {
     if (this.calMode !== 'off') {
       ctx.fillStyle = alpha(col.dark2, 0.33);
       ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = col.light1;
+      ctx.fillStyle = col.light1T;
       ctx.font = "700 14px 'Antonio', sans-serif";
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';

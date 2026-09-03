@@ -492,8 +492,8 @@ export class MagProbeInstrument extends Instrument {
         : (sweepOk ? 'ok' : 'warn'));
 
       const col = theme();
-      this.drawTrace(resScope, (s) => s.residual, col.light1, 'symmetric');
-      this.drawTrace(accScope, (s) => s.accuracy, col.light2, 'positive');
+      this.drawTrace(resScope, (s) => s.residual, col.trace[0], 'symmetric');
+      this.drawTrace(accScope, (s) => s.accuracy, col.trace[1], 'positive');
     });
   }
 

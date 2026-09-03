@@ -56,6 +56,9 @@
   --text:      #ffcc99;   /* Tanoi */
   --text-dim:  #9a8f80;
   --text-dimmer: #6a6274;
+  --frame-t:   #ff9c00;
+  --light1-t:  #ffcc66;
+  --light2-t:  #cc99cc;
   --grid:      #1e1e28;
   --grid-mid:  #3a3a48;
 
@@ -373,7 +376,7 @@ body {
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--light2);
+  color: var(--light2-t);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -383,7 +386,7 @@ body {
   font-family: var(--font-data);
   font-size: clamp(17px, 4.6vw, 25px);
   font-variant-numeric: tabular-nums;
-  color: var(--light1);
+  color: var(--light1-t);
   line-height: 1.16;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -412,7 +415,7 @@ body {
   font-size: 11px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--frame);
+  color: var(--frame-t);
   white-space: nowrap;
 }
 .sect__rule { flex: 1 1 auto; height: 3px; background: var(--dark2); border-radius: 2px; }
@@ -491,8 +494,8 @@ body {
 
 .dtable { width: 100%; border-collapse: collapse; font-family: var(--font-data); font-size: 11.5px; }
 .dtable td { padding: 4px 6px; border-bottom: 1px solid var(--grid); vertical-align: top; }
-.dtable td:first-child { color: var(--light2); white-space: nowrap; letter-spacing: 0.04em; }
-.dtable td:last-child { color: var(--light1); text-align: right; word-break: break-word; }
+.dtable td:first-child { color: var(--light2-t); white-space: nowrap; letter-spacing: 0.04em; }
+.dtable td:last-child { color: var(--light1-t); text-align: right; word-break: break-word; }
 .dtable tr[data-state='bad'] td:last-child  { color: var(--bad); }
 .dtable tr[data-state='warn'] td:last-child { color: var(--warn); }
 .dtable tr[data-state='ok'] td:last-child   { color: var(--ok-lt); }
@@ -522,7 +525,7 @@ body {
 .boot__title {
   font-size: clamp(30px, 11vw, 62px);
   letter-spacing: 0.2em;
-  color: var(--frame);
+  color: var(--frame-t);
   line-height: 0.94;
   text-transform: uppercase;
   font-weight: 700;
@@ -634,13 +637,13 @@ body {
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--light2);
+  color: var(--light2-t);
 }
 .rf__input {
   font-family: var(--font-data);
   font-size: 16px;   /* < 16px makes iOS zoom the viewport on focus */
   background: var(--panel);
-  color: var(--light1);
+  color: var(--light1-t);
   border: 0;
   border-left: 4px solid var(--dark1);
   border-radius: 2px;
@@ -710,7 +713,7 @@ body {
   font-family: var(--font-data);
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--light1);
+  color: var(--light1-t);
   background: var(--panel);
   border-left: 4px solid var(--warn);
   border-radius: 2px;

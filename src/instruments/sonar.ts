@@ -524,7 +524,7 @@ export class SonarInstrument extends Instrument {
       const y = (h - 16) - (v / max) * (h - 26);
       if (rel === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = col.light1;
+    ctx.strokeStyle = col.trace[0];
     ctx.lineWidth = 1.2;
     ctx.stroke();
 

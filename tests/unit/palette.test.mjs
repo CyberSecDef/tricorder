@@ -114,10 +114,46 @@ for (const s of P.SCHEMES) {
 ok('ink() actually switches, rather than always returning black',
    new Set(P.SCHEMES.flatMap((s) => P.RAIL_ROTATION.map((r) => T.ink(s.palette[r], s.palette.text)))).size > 1);
 
+console.log('\n-- text roles are legible on the page ground in every scheme --');
+// The chart's roles are FILLS. `frame` is literally "Frame / Shoulder Colour"
+// — the elbow and the header bar — and using it for section headings worked
+// only because Standard's Butterscotch is bright. Blue Alert's frame sits at
+// 1.95:1 on black. The -t variants are what headings and values actually use.
+for (const s of P.SCHEMES) {
+  for (const role of ['frame', 'light1', 'light2']) {
+    const lifted = T.onDark(s.palette[role]);
+    ok(`${s.id}: ${role} as text >= ${T.TEXT_MIN}:1`, T.contrast(lifted, '#000000') >= T.TEXT_MIN - 0.01,
+       `${s.palette[role]} ${T.contrast(s.palette[role], '#000000').toFixed(2)} -> ${lifted} ${T.contrast(lifted, '#000000').toFixed(2)}`);
+  }
+}
+ok('schemes that were already bright are left alone',
+   ['standard', 'maintenance', 'teal', 'yellow'].every((id) => {
+     const q = P.schemeOf(id).palette;
+     return T.onDark(q.frame) === q.frame && T.onDark(q.light1) === q.light1;
+   }));
+
+console.log('\n-- multi-series traces are visible AND mutually distinguishable --');
+// Grey aliases light2 to light1, so a fixed [light1, light2, ...] ramp handed
+// the seismograph the same colour for X and Y — two axes impossible to tell
+// apart. traceRamp() picks for separation instead of by name.
+for (const s of P.SCHEMES) {
+  const tr = T.traceRamp(s.palette);
+  ok(`${s.id}: four distinct trace colours`, new Set(tr).size === 4, tr.join(' '));
+  const minC = Math.min(...tr.map((t) => T.contrast(t, '#000000')));
+  ok(`${s.id}: dimmest trace visible on black (>= 4.5:1)`, minC >= 4.49, `${minC.toFixed(2)}:1`);
+  let minD = Infinity;
+  for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) minD = Math.min(minD, T.deltaE(tr[i], tr[j]));
+  // Grey Mode is five mauve-greys by design, so it gets a lower bar than the
+  // schemes that have hue to spend. Above the ~2.3 JND either way.
+  const floor = s.id === 'grey' ? 6 : 15;
+  ok(`${s.id}: closest trace pair dE >= ${floor}`, minD >= floor, `dE ${minD.toFixed(1)}`);
+}
+
 console.log('\n-- generated CSS covers every token lcars.css consumes --');
 const NEEDED = ['--disabled','--dark1','--dark2','--frame','--light1','--light2','--active',
                 '--text','--rail-1','--rail-2','--rail-3','--rail-4','--text-dim',
-                '--text-dimmer','--grid','--grid-mid','--ok','--warn','--bad'];
+                '--text-dimmer','--grid','--grid-mid','--ok','--warn','--bad',
+                '--frame-t','--light1-t','--light2-t'];
 for (const s of P.SCHEMES) {
   const block = T.cssFor(s.palette, ':root');
   const missing = NEEDED.filter((t) => !block.includes(`${t}:`));

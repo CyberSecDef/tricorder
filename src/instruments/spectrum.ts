@@ -315,7 +315,7 @@ export class SpectrumInstrument extends Instrument {
     grad.addColorStop(1, alpha(col.dark1, 0));
     ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = col.light1;
+    ctx.strokeStyle = col.trace[0];
     ctx.lineWidth = 1.2;
     ctx.stroke();
 

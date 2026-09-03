@@ -1527,6 +1527,50 @@ was measuring the wrong property. It now measures CIE76 ΔE in L\*a\*b\*, where
 the three state colours sit 78–110 apart against a just-noticeable threshold of
 about 2.3.
 
+### The roles are fills, and I used one as type
+
+Reported from the device: section headings were unreadable in Blue Alert.
+Measured, they were at **1.95:1** against black — the WCAG floor for text is
+4.5. Blue's `light1`, which draws readout *values*, was worse in kind at 2.87.
+
+The cause was a category error rather than a bad colour. The chart's roles are
+**fills**: `frame` is literally "Frame / Shoulder Colour", meant for the elbow
+and the header bar. Using it for type worked only because Standard's
+Butterscotch happens to be bright, and that accident hid the mistake through
+the entire first pass.
+
+`onDark()` lifts a colour by whitening it just enough to clear a floor. The
+whitening is not stylistic: blue contributes only 0.0722 to relative luminance,
+so even a fully saturated `#0000ff` reaches just 2.44:1. **No pure blue can
+ever clear 4.5:1 on black** — desaturating is the only route, and a binary
+search keeps as much hue as the threshold allows.
+
+The floor is **6.5, not 4.5**. At the WCAG minimum Blue's headings are legible
+but still look dim beside Yellow's 13.8; 6.5 is the highest floor that fixes
+the dark schemes while leaving Standard, Maintenance, Teal and Yellow
+completely untouched (at 7.5, Maintenance starts shifting for no reason).
+Emitted as `--frame-t` / `--light1-t` / `--light2-t`; the raw roles stay for
+fills.
+
+### Traces had the same bug, plus one that was worse
+
+Signals stroked in a raw role are as invisible as text was. But `trace[2]` was
+`dark1`, and Blue Alert's `dark1` is `#230058` — about 1.1:1 on black.
+
+Fixing that exposed something worse. Grey Mode aliases `light2` to `light1`
+(§18, the five-swatch chart), so a fixed `[light1, light2, …]` ramp handed the
+seismograph **the same colour for its X and Y traces**. Two axes rendered
+identically is precisely the silently-wrong readout this project exists to
+refuse, and no amount of lifting fixes it, because the collision is in the role
+names.
+
+`traceRamp()` now picks *for separation* instead of by name: lift every
+candidate role to 4.5, drop duplicates, and take the four-subset with the
+largest minimum pairwise ΔE — at most fifteen combinations, evaluated once per
+mode change. Grey's closest pair goes from **ΔE 0.0 to 7.8**; Blue's from 14.4
+to 16.1. Grey is held to a lower bar than the rest in the tests, and honestly
+so: it is five mauve-greys by design, separated by lightness rather than hue.
+
 ### Where a colour may still legitimately be written by hand
 
 - `palette.ts` — the palettes themselves.

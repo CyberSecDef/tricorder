@@ -225,7 +225,7 @@ export class GeoInstrument extends Instrument {
       const x = px(i), y = py(i);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = col.light1;
+    ctx.strokeStyle = col.trace[0];
     ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.stroke();
