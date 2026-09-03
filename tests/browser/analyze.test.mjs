@@ -88,19 +88,27 @@ ok(`f16 reported honestly (adapter f16=${probe.f16})`,
    probe.f16 ? !/no <?code>?shader-f16|reports no/i.test(modelNotice)
              : /shader-f16/i.test(modelNotice) && /no/i.test(modelNotice),
    modelNotice.slice(0, 120));
-ok('offered download size matches the dtype the adapter forces',
-   (await loadBtn.textContent() ?? '').includes(probe.f16 ? '190' : '265'),
-   await loadBtn.textContent());
+console.log('\n-- precision, and the q4f16 that broke a phone --');
+const precBtn = page.locator('button', { hasText: /^Precision:/ }).first();
+ok('a precision control is offered', await precBtn.count() === 1, await precBtn.textContent());
+ok('defaults to Fast — the combination observed to answer correctly',
+   /Fast/.test(await precBtn.textContent() ?? ''), await precBtn.textContent());
+const before = await loadBtn.textContent();
+await precBtn.click();
+const after = await loadBtn.textContent();
+ok('cycling precision changes the stated download size', before !== after, `${before} -> ${after}`);
+await precBtn.click(); await precBtn.click();
+ok('cycling wraps back to the default', await loadBtn.textContent() === before, await loadBtn.textContent());
 
 console.log('\n-- questions --');
-const qs = await page.$$eval('.btn--alt', (b) => b.map((x) => x.textContent.trim()));
+const qs = await page.$$eval('.analyze__ask', (b) => b.map((x) => x.textContent.trim()));
 ok('four questions offered', qs.length === 4, qs.join(' | '));
 ok('one is selected by default',
-   await page.locator('.btn--alt[aria-pressed="true"]').count() === 1);
-await page.locator('.btn--alt').nth(2).click();
+   await page.locator('.analyze__ask[aria-pressed="true"]').count() === 1);
+await page.locator('.analyze__ask').nth(2).click();
 ok('selecting a different question moves the selection',
-   await page.locator('.btn--alt').nth(2).getAttribute('aria-pressed') === 'true'
-   && await page.locator('.btn--alt').nth(0).getAttribute('aria-pressed') === 'false');
+   await page.locator('.analyze__ask').nth(2).getAttribute('aria-pressed') === 'true'
+   && await page.locator('.analyze__ask').nth(0).getAttribute('aria-pressed') === 'false');
 
 console.log('\n-- lifecycle --');
 await page.click('.rail__btn[data-id="core"]');

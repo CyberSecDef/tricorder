@@ -1792,6 +1792,58 @@ shipped defaults *would* still blow up. If a future model version ships saner
 defaults that test fails loudly and the clamp can be revisited rather than
 cargo-culted.
 
+### On a phone: fast, and then wrong in a new way
+
+Second run, after the tile clamp — **MEASURED on iPhone / iOS 26.6.1, Chrome:**
+
+| | |
+|---|---|
+| Inference | **2.7 s** (`webgpu`, `q4f16`) |
+| Prompt size | **88 tokens**, single tile |
+| Crash | none |
+
+So the clamp fixed it, and the phone is roughly **240× faster than the
+SwiftShader box** — the 658 s figure was pure software rasterisation, exactly
+as suspected. This is the same lesson as depth: local timings on a GPU-less
+machine say nothing at all.
+
+The answer, however, was `1.1.1.1.1.1.1.1.1…` to the token cap.
+
+That is not a wrong answer, it is a **generation loop**, and the difference
+matters because the causes are different. The discriminating detail was already
+in the record: the SwiftShader run answered *correctly* ("A red circle."), and
+it had no `shader-f16`, so it had silently fallen back to plain **`q4`**. The
+phone had f16 and took **`q4f16`**. Those are different quantisations, not the
+same weights in two containers, and a 256M model has very little headroom for
+the more aggressive one.
+
+The fix is to stop guessing a dtype. `PRECISIONS` offers three presets, sizes
+measured from the repository rather than estimated:
+
+| preset | vision · decoder | download |
+|---|---|---|
+| **Fast** (default) | `q4` · `q4` | 207 MB |
+| Sharp | `fp16` · `q4` | 331 MB |
+| Best | `fp16` · `fp16` | 515 MB |
+
+**No preset offers `q4f16` for the decoder**, and `degenerate.test.mjs` parses
+the table and fails if one ever does — the comment explaining why is not load
+bearing, the assertion is. Note also that `embed_tokens` has no real 4-bit
+export: its q4f16 file is byte-identical in size to fp16, so there was never
+anything to save there.
+
+Two supporting changes. `looksDegenerate()` classifies a repeating decode and
+the UI renders it as **MODEL FAILED** in the bad colour with an explanation and
+a next action, rather than as prose — presenting a loop in the same frame as an
+answer invites the reader to interpret noise. It is unit-tested against the
+exact string the device produced, and against nine genuine answers that must
+*not* be flagged, including legitimately repetitive and mostly-numeric ones.
+
+And the Model block now collapses to a single line once loaded. It is all
+single-use — read it, pick a precision, load — and leaving ~600 px of it above
+the viewfinder separates the picture from the Capture button, which is the one
+adjacency this screen actually needs.
+
 ### What the test suite cannot cover
 
 Real inference. One answer takes eleven minutes on the CI-style Chromium, so

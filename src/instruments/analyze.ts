@@ -56,6 +56,59 @@ const CAPTURE_PX = 512;
 const TILE_PX = 512;
 const MAX_NEW_TOKENS = 72;
 
+/**
+ * Weight precision, cheapest first.
+ *
+ * `q4f16` is deliberately ABSENT from the decoder here, and that absence is
+ * the whole point of this table. The first build shipped
+ * `decoder_model_merged: 'q4f16'` and a phone returned
+ * "1.1.1.1.1.1.1.1…" — a generation loop, not a wrong answer. The same code
+ * on a desktop with no `shader-f16`, which therefore fell back to plain `q4`,
+ * answered a synthetic scene correctly. `q4` and `q4f16` are different
+ * quantisations, not the same weights in two containers, and on a 256M model
+ * there is very little headroom for the more aggressive one.
+ *
+ * Sizes are measured from the repository, not estimated. Note that
+ * `embed_tokens` has no true 4-bit export — its q4f16 file is byte-identical
+ * in size to fp16 — so there is nothing to save there.
+ */
+const PRECISIONS = [
+  { id: 'fast',  label: 'Fast',  mb: 207,
+    note: 'The combination observed to produce correct answers.',
+    f16:    { embed_tokens: 'fp16', vision_encoder: 'q4',   decoder_model_merged: 'q4' },
+    noF16:  { embed_tokens: 'q8',   vision_encoder: 'q4',   decoder_model_merged: 'q4' } },
+  { id: 'sharp', label: 'Sharp', mb: 331,
+    note: 'Full-precision vision encoder; the decoder stays 4-bit.',
+    f16:    { embed_tokens: 'fp16', vision_encoder: 'fp16', decoder_model_merged: 'q4' },
+    noF16:  { embed_tokens: 'q8',   vision_encoder: 'int8', decoder_model_merged: 'q4' } },
+  { id: 'best',  label: 'Best',  mb: 515,
+    note: 'No quantisation anywhere. Largest download, slowest, highest quality.',
+    f16:    { embed_tokens: 'fp16', vision_encoder: 'fp16', decoder_model_merged: 'fp16' },
+    noF16:  { embed_tokens: 'q8',   vision_encoder: 'int8', decoder_model_merged: 'int8' } },
+] as const;
+
+type PrecisionId = typeof PRECISIONS[number]['id'];
+
+/**
+ * Does this read as a generation loop rather than an answer?
+ *
+ * A degenerate decode is not a wrong answer and must not be presented as one —
+ * "1.1.1.1.1." is the model failing, usually because the weights were
+ * quantised past what it can carry. Saying so turns a baffling output into a
+ * diagnosis with an obvious next action.
+ */
+export function looksDegenerate(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 12) return false;
+  // A short unit repeated to fill the budget: "1.1.1.", "the the the".
+  if (/^(.{1,6}?)\1{5,}$/.test(t.replace(/\s+/g, ''))) return true;
+  const words = t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (words.length >= 8 && new Set(words).size / words.length < 0.25) return true;
+  // Mostly punctuation and digits with almost no letters is not prose.
+  const letters = (t.match(/\p{L}/gu) ?? []).length;
+  return t.length >= 20 && letters / t.length < 0.35;
+}
+
 const PROMPTS = [
   { id: 'what',   label: 'What is this?',  text: 'What is in this image? Answer in one or two sentences.' },
   { id: 'detail', label: 'Describe it',    text: 'Describe this image in detail.' },
@@ -106,6 +159,7 @@ export class AnalyzeInstrument extends Instrument {
   private prompt: PromptId = 'what';
   private frame: HTMLCanvasElement | null = null;
   private split = false;
+  private precision: PrecisionId = 'fast';
 
   protected build(root: HTMLElement): void {
     const scroll = el('div', { class: 'stage__scroll' });
@@ -136,6 +190,60 @@ export class AnalyzeInstrument extends Instrument {
     if (!this.isMounted) { this.cam.release(); return; }
     this.onCleanup(() => { this.teardown(); this.cam?.release(); });
 
+    // --- Model ------------------------------------------------------------
+    // Above the viewfinder deliberately: the loading controls are used once,
+    // and putting them first keeps the picture adjacent to Capture, so you can
+    // frame a shot and take it without scrolling between the two.
+    const b = this.backend;
+    const btnLoad = el('button', { class: 'btn', type: 'button' }, 'Load model');
+    const barWrap = el('div', { class: 'bar-track' });
+    const bar = el('div', { class: 'bar-fill' });
+    append(barWrap, bar);
+    const progLabel = el('div', { class: 'dim', style: 'font-size:11px' });
+    const modelBox = el('div');
+
+    const btnPrec = el('button', { class: 'btn btn--alt', type: 'button' }, '');
+    const precNote = el('div', { class: 'dim', style: 'font-size:11.5px;margin-top:2px' });
+    const syncPrec = (): void => {
+      const p = PRECISIONS.find((x) => x.id === this.precision)!;
+      btnPrec.textContent = `Precision: ${p.label}`;
+      btnLoad.textContent = this.model ? 'Model loaded' : `Load model (~${p.mb} MB)`;
+      precNote.textContent = `${p.note} Downloading a different precision fetches different files.`;
+    };
+    btnPrec.addEventListener('click', () => {
+      if (this.model || this.busy) return;   // changing after load would lie about what is running
+      const i = PRECISIONS.findIndex((x) => x.id === this.precision);
+      this.precision = PRECISIONS[(i + 1) % PRECISIONS.length].id;
+      syncPrec();
+    });
+    syncPrec();
+
+    // Everything in this block is single-use: you read it once, choose a
+    // precision, and load. Leaving ~600px of it above the viewfinder for the
+    // rest of the session pushes the picture and the Capture button apart,
+    // which is the one adjacency this screen needs. It collapses on load.
+    const setupBox = el('div');
+    const loadedLine = el('div', { class: 'analyze__loaded', hidden: 'true' });
+    this.loadedLine = loadedLine;
+
+    append(setupBox,
+      notice(b.device === 'webgpu' ? (b.f16 ? 'ok' : 'warn') : 'warn',
+        `<strong>${escapeHtml(MODEL)}</strong> — 256M parameters, downloaded once and cached by the browser. ` +
+        `Backend: <code>${escapeHtml(b.device)}</code> on ${escapeHtml(b.adapter)}. ` +
+        (b.device !== 'webgpu'
+          ? 'Without WebGPU this runs on WASM and will be <strong>very</strong> slow — minutes, not seconds.'
+          : b.f16
+            ? 'This adapter supports <code>shader-f16</code>.'
+            : 'This adapter reports <strong>no <code>shader-f16</code></strong>, so integer weights are used. ' +
+              'A software adapter (SwiftShader) will still take minutes per answer — WebGPU being present ' +
+              'is not the same as a GPU being present.')),
+      el('div', { class: 'btn-row' }, btnPrec), precNote,
+      el('div', { class: 'btn-row' }, btnLoad), barWrap, progLabel);
+    append(scroll, section('Model'), setupBox, loadedLine, modelBox);
+    this.setupBox = setupBox;
+
+    btnLoad.addEventListener('click', () => void this.load(btnLoad, bar, progLabel, modelBox, btnPrec));
+
     // --- Viewfinder ------------------------------------------------------
     const view = el('div', { class: 'analyze__view' });
     const video = this.cam.video;
@@ -144,36 +252,11 @@ export class AnalyzeInstrument extends Instrument {
     append(view, video);
     append(scroll, section('View'), view);
 
-    // --- Model ------------------------------------------------------------
-    const b = this.backend;
-    const size = b.f16 ? '~190 MB' : '~265 MB';
-    const btnLoad = el('button', { class: 'btn', type: 'button' }, `Load model (${size})`);
-    const barWrap = el('div', { class: 'bar-track' });
-    const bar = el('div', { class: 'bar-fill' });
-    append(barWrap, bar);
-    const progLabel = el('div', { class: 'dim', style: 'font-size:11px' });
-    const modelBox = el('div');
-
-    append(scroll, section('Model'),
-      notice(b.device === 'webgpu' ? (b.f16 ? 'ok' : 'warn') : 'warn',
-        `<strong>${escapeHtml(MODEL)}</strong> — 256M parameters, downloaded once and cached by the browser. ` +
-        `Backend: <code>${escapeHtml(b.device)}</code> on ${escapeHtml(b.adapter)}. ` +
-        (b.device !== 'webgpu'
-          ? 'Without WebGPU this runs on WASM and will be <strong>very</strong> slow — minutes, not seconds.'
-          : b.f16
-            ? 'This adapter supports <code>shader-f16</code>, so the smaller half-precision weights are used.'
-            : 'This adapter reports <strong>no <code>shader-f16</code></strong>, so the larger 4-bit integer ' +
-              'weights are used instead. Note that a software adapter (SwiftShader) will still take minutes ' +
-              'per answer — WebGPU being present is not the same as a GPU being present.')),
-      el('div', { class: 'btn-row' }, btnLoad), barWrap, progLabel, modelBox);
-
-    btnLoad.addEventListener('click', () => void this.load(btnLoad, bar, progLabel, modelBox));
-
     // --- Question ---------------------------------------------------------
     const promptRow = el('div', { class: 'btn-row' });
     const promptBtns = new Map<PromptId, HTMLElement>();
     for (const p of PROMPTS) {
-      const btn = el('button', { class: 'btn btn--alt', type: 'button', 'aria-pressed': String(p.id === this.prompt) }, p.label);
+      const btn = el('button', { class: 'btn btn--alt analyze__ask', type: 'button', 'aria-pressed': String(p.id === this.prompt) }, p.label);
       btn.addEventListener('click', () => {
         this.prompt = p.id;
         for (const [id, x] of promptBtns) x.setAttribute('aria-pressed', String(id === this.prompt));
@@ -206,8 +289,12 @@ export class AnalyzeInstrument extends Instrument {
 
   private runBtn: HTMLElement | null = null;
   private costReadout: any = null;
+  private activeDtype = '';
+  private setupBox: HTMLElement | null = null;
+  private loadedLine: HTMLElement | null = null;
 
-  private async load(btn: HTMLElement, bar: HTMLElement, label: HTMLElement, box: HTMLElement): Promise<void> {
+  private async load(btn: HTMLElement, bar: HTMLElement, label: HTMLElement, box: HTMLElement,
+                     precBtn?: HTMLElement): Promise<void> {
     if (this.model || this.busy) return;
     this.busy = true;
     (btn as HTMLButtonElement).disabled = true;
@@ -221,9 +308,9 @@ export class AnalyzeInstrument extends Instrument {
       if (wasmEnv) wasmEnv.wasmPaths = `${import.meta.env.BASE_URL}ort/`;
 
       const b = this.backend!;
-      const dtype = b.f16
-        ? { embed_tokens: 'fp16', vision_encoder: 'q4f16', decoder_model_merged: 'q4f16' }
-        : { embed_tokens: 'q8',   vision_encoder: 'q4',    decoder_model_merged: 'q4' };
+      const preset = PRECISIONS.find((x) => x.id === this.precision)!;
+      const dtype = { ...(b.f16 ? preset.f16 : preset.noF16) };
+      this.activeDtype = `${preset.label} · ${dtype.decoder_model_merged}`;
 
       const files = new Map<string, number>();
       const progress_callback = (p: any) => {
@@ -246,6 +333,16 @@ export class AnalyzeInstrument extends Instrument {
 
       if (!this.isMounted) { this.teardown(); return; }
       btn.textContent = 'Model loaded';
+      if (precBtn) (precBtn as HTMLButtonElement).disabled = true;
+      // Collapse the setup block to one line, so View sits next to Capture.
+      if (this.setupBox) this.setupBox.hidden = true;
+      if (this.loadedLine) {
+        this.loadedLine.hidden = false;
+        clear(this.loadedLine);
+        append(this.loadedLine,
+          el('span', { class: 'analyze__ok', text: 'LOADED' }),
+          el('span', { text: `${MODEL} · ${this.activeDtype} · ${this.backend?.device}` }));
+      }
       if (this.runBtn) {
         (this.runBtn as HTMLButtonElement).disabled = false;
         this.runBtn.textContent = 'Capture and analyze';
@@ -338,7 +435,7 @@ export class AnalyzeInstrument extends Instrument {
       const secs = (performance.now() - t0) / 1000;
 
       if (!this.isMounted) return;
-      rTime.set(fmt(secs, 1), `${this.backend?.device} · ${this.backend?.f16 ? 'q4f16' : 'q4'}`);
+      rTime.set(fmt(secs, 1), `${this.backend?.device} · ${this.activeDtype}`);
       rTime.setState(secs < 10 ? 'ok' : 'warn');
       const promptTok = Number(inputs?.input_ids?.dims?.at?.(-1) ?? 0);
       // The number that decides whether this runs or crashes. With splitting
@@ -356,14 +453,30 @@ export class AnalyzeInstrument extends Instrument {
       thumb.width = canvas.width; thumb.height = canvas.height;
       thumb.getContext('2d')!.drawImage(canvas, 0, 0);
 
+      const broken = looksDegenerate(answer);
+
       append(box,
         el('div', { class: 'analyze__head' },
-          el('span', { class: 'analyze__tag', text: 'NOT A MEASUREMENT' }),
-          el('span', { class: 'analyze__model', text: MODEL })),
-        el('div', { class: 'analyze__row' }, thumb,
+          el('span', { class: broken ? 'analyze__tag analyze__tag--bad' : 'analyze__tag',
+                       text: broken ? 'MODEL FAILED' : 'NOT A MEASUREMENT' }),
+          el('span', { class: 'analyze__model', text: `${MODEL} · ${this.activeDtype}` })),
+        el('div', { class: broken ? 'analyze__row analyze__row--bad' : 'analyze__row' }, thumb,
           el('div', { class: 'analyze__answer' },
             el('div', { class: 'analyze__q', text: question.text }),
             el('div', { class: 'analyze__a', text: answer || '(the model returned nothing)' }))));
+
+      // A repeating decode is the model breaking down, not a wrong answer, and
+      // presenting it as prose invites the reader to interpret noise. Name it,
+      // and say what to do about it — this is nearly always the weights having
+      // been quantised past what a 256M model can carry.
+      if (broken) {
+        append(box, notice('bad',
+          '<strong>That is a generation loop, not an answer.</strong> The model repeated a short fragment ' +
+          'until it hit the token cap, which almost always means the weights are quantised past what it can ' +
+          `carry — this run used <code>${escapeHtml(this.activeDtype)}</code>. ` +
+          'Leave the screen, come back, and raise <strong>Precision</strong> a step; the more precise weights ' +
+          'are a different download but are cached the same way.'));
+      }
     } catch (e) {
       append(box, notice('bad', `<strong>Inference failed.</strong> ${escapeHtml(String((e as Error)?.message ?? e))}`));
       rTime.set('—', 'failed');

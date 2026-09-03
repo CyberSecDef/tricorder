@@ -931,3 +931,35 @@ body {
 @media (max-width: 419px) {
   .analyze__thumb { width: 64px; }
 }
+
+/* A degenerate decode is a failure, not a result: it must not borrow the
+   neutral styling an actual answer gets. */
+.analyze__tag--bad { background: var(--bad); }
+.analyze__row--bad { border-left-color: var(--bad); }
+.analyze__row--bad .analyze__a {
+  color: var(--text-dim);
+  word-break: break-all;   /* "1.1.1.1.1…" must not stretch the layout */
+}
+
+/* One-line replacement for the Model setup block once loading is done. */
+.analyze__loaded {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--font-data);
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--panel);
+  border-left: 4px solid var(--ok);
+  border-radius: 2px;
+  padding: 6px 10px;
+  word-break: break-all;
+}
+.analyze__ok {
+  font-family: var(--font-lcars);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--ok);
+  flex: 0 0 auto;
+}
