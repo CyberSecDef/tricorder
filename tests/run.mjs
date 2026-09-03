@@ -40,8 +40,18 @@ for (const kind of kinds) {
     console.log(`  ${bad ? 'FAIL' : 'ok  '}  ${f}`);
     if (bad) {
       failed++;
-      for (const line of out.split('\n').filter((l) => /FAIL|ERROR/.test(l)).slice(0, 4)) {
-        console.log(`          ${line.trim()}`);
+      const hits = out.split('\n').filter((l) => /FAIL|ERROR/.test(l)).slice(0, 4);
+      if (hits.length) {
+        for (const line of hits) console.log(`          ${line.trim()}`);
+      } else {
+        // A suite can fail with no FAIL line at all — a throw, a timeout, a
+        // browser that would not launch. Printing nothing there is how a
+        // process-level failure gets mistaken for flakiness, so say what
+        // actually happened.
+        console.log(`          exited ${r.status === null ? `on signal ${r.signal}` : `with code ${r.status}`}, no FAIL line`);
+        for (const line of out.trimEnd().split('\n').slice(-6)) {
+          console.log(`          | ${line.trim()}`);
+        }
       }
     }
     ran++;

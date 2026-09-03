@@ -21,6 +21,13 @@ const ctx = await browser.newContext({
   permissions: ['camera', 'microphone'],
 });
 const page = await ctx.newPage();
+/* The boot gate is the first interaction in every suite and it waits on a full
+ * page load, fonts included. Playwright's 30 s default is not a budget for that
+ * on a loaded machine — a full run was dropping a different suite each pass at
+ * `waiting for locator('.engage')`, which read as flakiness and was really a
+ * timeout that had never been stated. */
+page.setDefaultTimeout(60_000);
+
 const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
 

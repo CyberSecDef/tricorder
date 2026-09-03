@@ -21,7 +21,8 @@ import { orientation } from '../sensors/orientation';
 import { gravity, calibration, calibrateFromFlat, resetCalibration } from '../sensors/gravity';
 import * as wakelock from '../lib/wakelock';
 import { probeCameraCapabilities, CameraUnavailableError } from '../sensors/camera';
-import { TARGET, type ExpectedCapability } from '../lib/platform';
+import { TARGET, describeShell, type ExpectedCapability } from '../lib/platform';
+import { BUILD } from '../lib/build';
 import type { Vec3 } from '../lib/vec';
 import { lerp, len } from '../lib/vec';
 import { setMode, mode, onThemeChange } from '../ui/theme';
@@ -46,8 +47,12 @@ export class CoreInstrument extends Instrument {
     const scroll = el('div', { class: 'stage__scroll' });
     append(root, scroll);
 
+    // --- About (§19) ------------------------------------------------------
+    // First: what this is and exactly which build you are looking at. Every
+    // bug report about this app starts by needing the row below.
+    append(scroll, section('About'), this.buildAbout());
+
     // --- Mode (§18) -------------------------------------------------------
-    // First on the page because it changes every other page.
     append(scroll, section('Mode'), this.buildModePicker());
 
     const caps = refresh();
@@ -255,6 +260,78 @@ export class CoreInstrument extends Instrument {
   }
 
   /**
+   * About: identity, provenance, and credit.
+   *
+   * The provenance rows are the point. "It works on my phone" is worthless
+   * without knowing which build was on the phone, and a version number alone
+   * does not distinguish two builds of 0.1.0 a week apart. Commit, branch,
+   * dirty flag and build time together do.
+   */
+  private buildAbout(): HTMLElement {
+    const box = el('div');
+    const { shell, engine } = describeShell();
+
+    // Read off the rail rather than importing NAV — main.ts imports this file,
+    // so importing it back would be a cycle, and a hard-coded count is a
+    // number that goes stale the next time an instrument lands.
+    const railCount = document.querySelectorAll('.rail__btn').length;
+    const instruments = railCount > 1 ? `${railCount - 1} instruments + Core` : 'unknown';
+
+    const build = BUILD.commit
+      ? `${BUILD.commit}${BUILD.dirty ? ' + uncommitted changes' : ''}${BUILD.branch ? ` (${BUILD.branch})` : ''}`
+      : 'unknown — built outside a git checkout';
+
+    append(box, table([
+      ['name', 'Tricorder', ''],
+      ['version', BUILD.version ?? 'unknown', ''],
+      ['build', build, BUILD.commit ? (BUILD.dirty ? 'warn' : 'ok') : 'warn'],
+      ['built', stamp(BUILD.builtAt), ''],
+      ['source dated', BUILD.committedAt ? stamp(BUILD.committedAt) : 'unknown', ''],
+      ['instruments', instruments, ''],
+      ['target platform', TARGET.os, ''],
+      ['verified on', TARGET.testedOn, ''],
+      ['this browser', shell, ''],
+      ['engine', engine, ''],
+      ['licence', 'MIT', 'ok'],
+    ]));
+
+    append(box, notice('warn',
+      '<strong>What this is.</strong> A tricorder that only reports things it can actually measure. ' +
+      'Every readout is a real measurement from a real sensor; anything derived, uncalibrated or ' +
+      'relative says so on its own face, and an instrument that cannot honestly measure its quantity ' +
+      'on this hardware is not shipped rather than faked. Two of the original ten are absent for ' +
+      'exactly that reason, and Core lists the APIs iOS does not provide so a future reader does not ' +
+      'go hunting for them.'));
+
+    // Deliberately NOT a .dtable. That table is built for short diagnostic
+    // values — nowrap keys, break-word values — and credits are prose: it
+    // hyphenates "CupcakeEternity" into "CupcakeEte / rnity". Names read on
+    // one line, the credit beneath.
+    append(box, section('Built on'), credits([
+      ['Antonio', 'Vernon Adams and contributors. SIL Open Font License 1.1.'],
+      ['LCARS colour schemes', 'CupcakeEternity — “Starfleet LCARS Colour Schemes · 25th Century” (2021). Seven of the eight Mode palettes are sampled from it.'],
+      ['Depth Anything V2 (small)', 'Yang et al. Monocular depth estimation. Apache 2.0.'],
+      ['Transformers.js', 'Hugging Face. Runs the depth model in the browser. Apache 2.0.'],
+      ['ONNX Runtime Web', 'Microsoft. WebGPU inference, with a WASM fallback. MIT.'],
+      ['zxing-wasm', 'ZXing contributors. Barcode and QR decoding. Apache 2.0.'],
+      ['Vite · TypeScript', 'Build toolchain. No runtime framework — the app ships no UI library at all.'],
+    ]));
+
+    append(box, notice('ok',
+      '<strong>MIT licensed.</strong> Reuse it, modify it, ship it commercially — the only condition is ' +
+      'that the copyright notice and licence text travel with it. It comes with no warranty and the ' +
+      'authors carry no liability. Full text in <code>LICENSE</code>.'));
+
+    append(box, notice('warn',
+      '<strong>Antonio is fetched from Google Fonts,</strong> which is the only request this app makes ' +
+      'to anything other than its own origin. Everything else — the depth model, the barcode decoder, ' +
+      'the inference runtime — is served from here. Vendor the font before a public deploy and the app ' +
+      'talks to nobody.'));
+
+    return box;
+  }
+
+  /**
    * Colour-scheme picker. Each button previews the scheme it selects, in the
    * scheme's own colours: the frame stripe, then the four rail colours in the
    * order the rail actually cycles them. A palette chooser rendered in the
@@ -304,6 +381,27 @@ export class CoreInstrument extends Instrument {
 }
 
 const yn = (b: boolean): string => (b ? 'yes' : 'no');
+
+/** Attribution list: a name, and the credit underneath it. */
+function credits(rows: Array<[string, string]>): HTMLElement {
+  const wrap = el('div', { class: 'credits' });
+  for (const [name, by] of rows) {
+    append(wrap, el('div', { class: 'credit' },
+      el('div', { class: 'credit__name', text: name }),
+      el('div', { class: 'credit__by', text: by })));
+  }
+  return wrap;
+}
+
+/** ISO timestamp → something a person can read, in their own timezone. */
+function stamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'unknown';
+  return d.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
 const st = (v: string | undefined): State =>
   v === 'granted' ? 'ok' : v === 'denied' ? 'bad' : v === undefined ? '' : 'warn';
 

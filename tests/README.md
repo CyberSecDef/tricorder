@@ -57,3 +57,33 @@ one, `pulse-ui` asserts the finger check rejects the test pattern, and `dop`
 asserts the mute-switch path fires. A green run here is a regression net, never
 evidence about the platform — the two worst bugs this project has seen were
 invisible in Chromium and obvious on the phone.
+
+
+## The suite was never flaky
+
+For a while a full run dropped one suite per pass, and it was a *different*
+suite each time — the signature of contention, so that is what it was assumed
+to be. It was not.
+
+The runner only printed lines matching `FAIL|ERROR`, so a suite that died at
+the process level — a throw, a timeout, a browser that would not launch —
+printed a `FAIL` header and then nothing at all. With no evidence to read, the
+failure looked random. The runner now prints the exit code and the tail of the
+output whenever a suite fails without producing a FAIL line, and the cause was
+legible immediately:
+
+- **`waiting for locator('.engage')`.** The boot gate is the first interaction
+  in every suite and waits on a full page load. Playwright's 30 s default
+  action timeout had never been stated as a budget for that, and on a loaded
+  machine it is not one. Every browser suite now sets `setDefaultTimeout`
+  explicitly.
+- **`waiting for … "Inference"`.** Depth loads an ONNX model and compiles it
+  for WebGPU, and every suite gets a fresh browser profile, so that cost is
+  paid again each pass against a cold HTTP cache. The four depth-touching
+  suites budget 120 s.
+
+Both were missing timeouts, not resource limits. Three consecutive full runs
+pass at 21/21.
+
+**If a suite fails, read the indented lines under it before re-running.** The
+temptation to shrug and re-run is exactly what kept this hidden.

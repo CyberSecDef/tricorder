@@ -30,3 +30,34 @@ export const TARGET = {
 } as const;
 
 export type ExpectedCapability = keyof typeof TARGET.expected;
+
+/**
+ * Which browser *shell* this is, and the engine underneath it.
+ *
+ * These are two different questions on iOS and the distinction is the whole
+ * reason this app feature-detects: Chrome and Edge on iOS are Chrome and Edge
+ * in the chrome and WKWebView underneath, so "Chrome" says nothing about what
+ * JavaScript APIs exist. Reporting only the shell would be the same mistake
+ * §1 warns against, so About reports both and says which is which.
+ *
+ * UA sniffing is the wrong tool for deciding what to *do* — every capability
+ * decision in this app is a real feature test. It is the right tool for
+ * telling a human which browser they are looking at, which is all this does.
+ */
+export function describeShell(ua: string = navigator.userAgent): { shell: string; engine: string } {
+  const iOS = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const shell =
+    /CriOS/.test(ua) ? 'Chrome' :
+    /EdgiOS/.test(ua) ? 'Edge' :
+    /FxiOS/.test(ua) ? 'Firefox' :
+    /OPiOS|OPT\//.test(ua) ? 'Opera' :
+    /Edg\//.test(ua) ? 'Edge' :
+    /Chrome\//.test(ua) ? 'Chrome' :
+    /Firefox\//.test(ua) ? 'Firefox' :
+    /Safari\//.test(ua) ? 'Safari' : 'unknown';
+  const engine = iOS ? 'WebKit (WKWebView — mandated on iOS)'
+    : /Chrome\/|Edg\//.test(ua) ? 'Blink'
+    : /Firefox\//.test(ua) ? 'Gecko'
+    : /Safari\//.test(ua) ? 'WebKit' : 'unknown';
+  return { shell, engine };
+}

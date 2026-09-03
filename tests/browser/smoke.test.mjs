@@ -27,6 +27,13 @@ const ctx = await browser.newContext({
   geolocation: { latitude: 51.5074, longitude: -0.1278, accuracy: 8 },
 });
 const page = await ctx.newPage();
+/* The boot gate is the first interaction in every suite and it waits on a full
+ * page load, fonts included. Playwright's 30 s default is not a budget for that
+ * on a loaded machine — a full run was dropping a different suite each pass at
+ * `waiting for locator('.engage')`, which read as flakiness and was really a
+ * timeout that had never been stated. */
+page.setDefaultTimeout(60_000);
+
 page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 

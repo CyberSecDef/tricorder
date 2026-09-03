@@ -94,7 +94,7 @@ Build a single-page PWA presenting a set of "instruments," each a self-contained
 | 8 | Ultrasonic Doppler motion | Medium | Web Audio | ✅ built and **verified on device** — detects motion and its direction |
 | 9 | ML depth scanner | Hard | Camera + ONNX/WebGPU | ✅ built and **verified on device** — WebGPU, fp16, 252 px |
 | 10 | Acoustic sonar rangefinder | Hard | Web Audio (AudioWorklet) | ✅ built and **verified on device** — all three bands |
-| — | Core | — | — | ✅ built (§9) — renamed from *Diagnostics* on 2026-09-02; see §17 |
+| — | Core | — | — | ✅ built (§9) — renamed from *Diagnostics* 2026-09-02 (§17); holds About (§19) and Mode (§18) |
 | — | Magnetic residual probe | — | DeviceOrientation + DeviceMotion | ✅ built — the harness that answered §11 q.2 |
 | + | Barcode / QR scanner | Easy | Camera + ZXing WASM | ✅ built — beyond the original ten; see §14 |
 | + | Pulse (PPG) | Medium | Camera + torch | ✅ built — beyond the original ten; see §15 |
@@ -1242,9 +1242,11 @@ and polish:
 4. **Vendor the Antonio font** before a public deploy. It is the only external
    request the app makes.
 5. **Fill out Core.** It was renamed from *Diagnostics* on 2026-09-02 to make
-   room for settings, benchmarks and an about page (§17). **Mode** shipped the
-   same day (§18); *about* and *benchmarks* are still empty, and deliberately
-   not stubbed.
+   room for settings, benchmarks and an about page (§17). **Mode** (§18) and
+   **About** (§19) shipped the same day. *Settings* and *benchmarks* remain,
+   and are deliberately not stubbed — of the two, benchmarks is the one that
+   needs a decision before code, since a number without its hardware and
+   thermal state is exactly the uncalibrated readout this project refuses.
 
 **Two instruments are in the tree but not in the rail**, both deliberately and
 both documented where they live: the magnetic anomaly detector (§8.7, no signal
@@ -1582,3 +1584,76 @@ so: it is five mauve-greys by design, separated by lightness rather than hue.
 
 Anywhere else, `tests/unit/palette.test.mjs` and `tests/browser/mode.test.mjs`
 are the enforcement.
+
+---
+
+## 19. About — identity, provenance, and credit
+
+Core's first section, above Mode. It answers one question that nothing else in
+the app could: **which build is this?**
+
+That question is not vanity. Every remote bug report about this project starts
+with a phone that is not here, and "0.1.0" cannot distinguish two builds a week
+apart. `vite.config.ts` shoots `git rev-parse`, the branch, the last commit
+date and the build time into a `define`, and `lib/build.ts` types them as
+nullable because every one of them requires `git` to succeed in the build
+directory — a tarball with no `.git` is a legitimate way to build this, and
+About says *unknown* there rather than inventing a hash.
+
+**`dirty` is reported next to the commit, not folded into it.** A hash taken
+from a modified working tree is a claim about code that is not the code
+running, so About says "62203e3 + uncommitted changes (main)" when that is the
+truth. This is the same rule the instruments follow — say what you actually
+know — applied to the app's own chrome.
+
+Two details worth keeping:
+
+- **The instrument count is read off the rail at runtime**, not hard-coded and
+  not imported. `main.ts` imports this file, so importing `NAV` back would be a
+  cycle; and a literal `12` is a number that goes stale the next time an
+  instrument lands. `document.querySelectorAll('.rail__btn')` cannot drift.
+- **Shell and engine are reported separately.** On iOS they are different
+  questions — Chrome and Edge are Chrome and Edge in the chrome and WKWebView
+  underneath — and reporting only "Chrome" would be exactly the conflation §1
+  warns against. UA sniffing is the wrong tool for deciding what to *do*, and
+  every capability decision here is still a real feature test; it is the right
+  tool for telling a human which browser they are looking at.
+
+### Credits are not a `.dtable`
+
+The first version reused the diagnostic table and hyphenated *CupcakeEternity*
+into "CupcakeEte / rnity". That table is built for short values — `nowrap` keys
+against `break-word` values — and a credit is prose. `.credits` gives each one
+a name line and a sentence beneath. Caught by looking at a screenshot, which is
+now twice this session (see §18's rail labels).
+
+The palette credit is load-bearing rather than courteous: seven of the eight
+Mode schemes are sampled from that chart, and the test asserts it is named in
+the app, not merely in the README.
+
+### Licensing
+
+MIT, added 2026-09-02 at the user's direction — "not liable, and they should
+attribute to the original" is precisely MIT's bargain: the copyright notice
+must travel with any copy, and all warranty and liability are disclaimed.
+(Apache 2.0 does both and adds an express patent grant; MIT is the smaller
+instrument and was the closer fit to what was asked.)
+
+`about.test.mjs` cross-checks the panel against `LICENSE` and `package.json`
+rather than trusting the string in the source, and asserts the licence text
+really does contain both of the clauses that were asked for. **The copyright
+holder is currently "CyberSecDef"** — inferred from the git remote. One line in
+`LICENSE` to change if that is wrong.
+
+Note that MIT covers *this code*. LCARS is a Star Trek design language and Star
+Trek is a Paramount property; this is a fan homage, and no licence granted here
+extends to that.
+
+### A trap in the test
+
+`about.test.mjs` deliberately does **not** assert the displayed hash equals
+current `HEAD`. `define` is evaluated once when the dev server starts, so a
+server left running across a commit correctly reports the older hash — an
+equality check would fail on the very next commit and train everyone to ignore
+the suite. It asserts the hash *resolves to a real commit in this repository*
+instead, which is the claim actually being made.

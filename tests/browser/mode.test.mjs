@@ -27,6 +27,13 @@ const ctx = await browser.newContext({
   ignoreHTTPSErrors: true, viewport: { width: 390, height: 844 }, permissions: ['camera'],
 });
 const page = await ctx.newPage();
+/* The boot gate is the first interaction in every suite and it waits on a full
+ * page load, fonts included. Playwright's 30 s default is not a budget for that
+ * on a loaded machine — a full run was dropping a different suite each pass at
+ * `waiting for locator('.engage')`, which read as flakiness and was really a
+ * timeout that had never been stated. */
+page.setDefaultTimeout(60_000);
+
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.locator('.engage').click();
@@ -38,10 +45,13 @@ await page.waitForSelector('.modes');
 const ids = await page.$$eval('.mode', (b) => b.map((x) => x.dataset.mode));
 ok('eight modes offered', ids.length === 8, ids.join(', '));
 ok('Standard is first', ids[0] === 'standard');
-ok('Mode is the first section on Core', await page.evaluate(() => {
-  const first = document.querySelector('.stage__scroll .sect__label');
-  return first?.textContent.trim().toLowerCase() === 'mode';
-}));
+// About took the first slot in §19; Mode is second and must stay above the
+// diagnostic tables, which are the long tail of the page.
+ok('Mode sits directly under About', await page.evaluate(() => {
+  const labels = [...document.querySelectorAll('.stage__scroll .sect__label')]
+    .map((n) => n.textContent.trim().toLowerCase());
+  return labels[0] === 'about' && labels.indexOf('mode') === 2;
+}), await page.evaluate(() => [...document.querySelectorAll('.stage__scroll .sect__label')].map(n=>n.textContent.trim()).join(' > ')));
 
 /* ---- switching actually re-tokenises the document ---------------------- */
 const frameOf = () => page.evaluate(() =>

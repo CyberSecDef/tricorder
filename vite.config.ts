@@ -1,6 +1,31 @@
 import { defineConfig } from 'vite';
 import { readFileSync, existsSync, createReadStream } from 'node:fs';
 import { resolve } from 'node:path';
+import { execSync } from 'node:child_process';
+
+/**
+ * Build provenance for the About panel (§19).
+ *
+ * `dirty` is reported alongside the commit rather than being folded into it,
+ * because a hash taken from a modified working tree is a claim about code that
+ * is not the code running. About says "at <hash>, with uncommitted changes"
+ * when that is the truth, which is the difference between provenance and
+ * decoration. Every field degrades to a stated unknown — none of this is
+ * allowed to fail a build, and none of it may guess.
+ */
+function git(cmd: string): string | null {
+  try { return execSync(`git ${cmd}`, { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
+  catch { return null; }
+}
+const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'));
+const BUILD = {
+  version: pkg.version ?? null,
+  commit: git('rev-parse --short HEAD'),
+  branch: git('rev-parse --abbrev-ref HEAD'),
+  committedAt: git('log -1 --format=%cI'),
+  dirty: git('status --porcelain') === null ? null : git('status --porcelain') !== '',
+  builtAt: new Date().toISOString(),
+};
 
 // Local TLS. iOS refuses motion / orientation / geolocation / getUserMedia
 // outside a secure context, and a phone cannot use localhost — so LAN dev
@@ -57,6 +82,7 @@ function dropBundledOrtWasm() {
 }
 
 export default defineConfig({
+  define: { __BUILD__: JSON.stringify(BUILD) },
   plugins: [serveOrtRawInDev(), dropBundledOrtWasm()],
   server: {
     host: true,          // bind 0.0.0.0 so the phone can reach it

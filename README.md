@@ -222,3 +222,19 @@ barometric pressure, temperature, humidity, radiation, NFC and battery. Either
 no API exists on iOS in any browser, or the phone cannot be calibrated for it.
 They are not faked, and Core lists the absent APIs explicitly so a future
 reader does not go hunting.
+
+## Licence
+
+[MIT](LICENSE). Use it, change it, ship it commercially — the one condition is
+that the copyright notice and licence text travel with it. No warranty, and the
+authors carry no liability.
+
+The dependencies it ships are all permissive too — Apache 2.0 (Transformers.js,
+zxing-wasm, Depth Anything V2), MIT (ONNX Runtime Web) — and Antonio is under
+the SIL Open Font License. The eight colour schemes in Core → Mode are sampled
+from CupcakeEternity's *Starfleet LCARS Colour Schemes · 25th Century* (2021);
+that credit is not optional and is rendered in the app itself, not only here.
+
+LCARS is a Star Trek design language and Star Trek is a Paramount property.
+This is a fan-made homage with no affiliation or endorsement, which the MIT
+grant above does not and cannot extend to.

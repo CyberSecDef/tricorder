@@ -15,6 +15,14 @@ const browser = await chromium.launch({
 });
 const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 390, height: 844 }, permissions: ['camera'] });
 const page = await ctx.newPage();
+/* Depth loads an ONNX model and compiles it for WebGPU. Every suite launches a
+ * fresh browser profile, so that cost is paid again each time with a cold HTTP
+ * cache — and Playwright's 30 s default action timeout is not a budget for it.
+ * A run of the whole suite would drop a different depth-touching file roughly
+ * once per pass, which looked like flakiness and was really this. Raise the
+ * default rather than sprinkling timeouts on individual reads. */
+page.setDefaultTimeout(120_000);
+
 const errs = []; page.on('pageerror', e => errs.push(e.message));
 const reqs = new Map();
 page.on('response', r => { const u = r.url();
@@ -24,7 +32,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.locator('.engage').click();
 await page.waitForSelector('.rail__btn');
 await page.click('.rail__btn[data-id="depth"]');
-await page.waitForSelector('.depth__out', { timeout: 10000 });
+await page.waitForSelector('.depth__out', { timeout: 120_000 });
 await page.waitForTimeout(600);
 
 const read = () => page.$$eval('.readout', rs => Object.fromEntries(rs.map(r =>
