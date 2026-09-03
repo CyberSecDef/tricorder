@@ -21,3 +21,6 @@ tests/.tmp/
 shot-*.png
 tests/**/*.png
 .DS_Store
+
+# Vite writes this beside the config while loading it, then deletes it.
+vite.config.*.timestamp-*

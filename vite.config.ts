@@ -18,12 +18,38 @@ function git(cmd: string): string | null {
   catch { return null; }
 }
 const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'));
+
+/**
+ * Is the working tree actually modified?
+ *
+ * The naive `git status --porcelain !== ''` is WRONG here, and wrong in the
+ * direction that matters: it reported dirty on every single build, including
+ * clean release builds, so About's provenance row said "+ uncommitted changes"
+ * for a perfectly reproducible commit. Vite loads a TypeScript config by
+ * writing `vite.config.ts.timestamp-*.mjs` NEXT TO IT — in the project root —
+ * and deleting it afterwards. That file exists precisely while this code runs.
+ * The build was observing its own build tool.
+ *
+ * Filtered rather than fixed with .gitignore alone, so the answer does not
+ * depend on a gitignore entry someone could reasonably tidy away.
+ */
+function isDirty(): boolean | null {
+  const status = git('status --porcelain');
+  if (status === null) return null;
+  return status
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .filter((l) => !/vite\.config\.[^\s]*timestamp-/.test(l))
+    .length > 0;
+}
+
 const BUILD = {
   version: pkg.version ?? null,
   commit: git('rev-parse --short HEAD'),
   branch: git('rev-parse --abbrev-ref HEAD'),
   committedAt: git('log -1 --format=%cI'),
-  dirty: git('status --porcelain') === null ? null : git('status --porcelain') !== '',
+  dirty: isDirty(),
   builtAt: new Date().toISOString(),
 };
 
